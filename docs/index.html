@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de Privacidade — U.Ai.TAKi Player Vídeo</title>
+<style>
+  :root {
+    --orange: #f7941d;
+    --cyan: #6dcff6;
+    --navy: #2e3192;
+    --bg: #ffffff;
+    --text: #1a1a1a;
+    --muted: #555;
+    --card: #f7f9fb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --text: #eaeaea;
+      --muted: #aaaaaa;
+      --card: #171a21;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+  header img {
+    height: 56px;
+    width: auto;
+  }
+  h1 {
+    font-size: 1.5rem;
+    margin: 24px 0 4px;
+  }
+  h2 {
+    font-size: 1.15rem;
+    margin: 36px 0 8px;
+    color: var(--orange);
+  }
+  .updated {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 32px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 16px 0;
+  }
+  ul { padding-left: 1.2em; }
+  li { margin-bottom: 6px; }
+  a { color: var(--navy); }
+  @media (prefers-color-scheme: dark) {
+    a { color: var(--cyan); }
+  }
+  footer {
+    margin-top: 48px;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="logo.png" alt="U.Ai.TAKi Player Vídeo">
+  </header>
+
+  <h1>Política de Privacidade</h1>
+  <p class="updated">Última atualização: agosto de 2026</p>
+
+  <p>
+    Esta política descreve como o aplicativo <strong>U.Ai.TAKi Player Vídeo</strong>
+    (pacote <code>com.uaitaki.playervideo</code>), desenvolvido pela UAiTAKi Soluções
+    Corporativas ("nós"), lida com os dados do usuário.
+  </p>
+
+  <div class="card">
+    <strong>Resumo direto:</strong> o app funciona inteiramente no seu aparelho. Não existe
+    servidor próprio, não há conta de usuário, não coletamos analytics e não exibimos
+    anúncios. Os únicos dados armazenados (vídeos locais, servidores de rede configurados e
+    suas senhas) ficam salvos localmente no seu dispositivo.
+  </div>
+
+  <h2>Quais dados o app acessa</h2>
+  <ul>
+    <li>
+      <strong>Vídeos armazenados no aparelho:</strong> lidos via MediaStore (API do Android),
+      mediante permissão de mídia concedida por você. Esses vídeos nunca saem do dispositivo
+      nem são enviados a nós ou a terceiros.
+    </li>
+    <li>
+      <strong>Configurações de servidores de rede (SMB, SFTP, FTP):</strong> host, porta,
+      usuário e caminho que você cadastra manualmente, para listar e reproduzir vídeos
+      guardados em um servidor da sua própria rede ou de sua confiança. Ficam salvos
+      localmente no aparelho (Android DataStore) e nunca são enviados para nós.
+    </li>
+    <li>
+      <strong>Senhas dos servidores de rede:</strong> armazenadas de forma criptografada no
+      próprio dispositivo, usando <code>EncryptedSharedPreferences</code> com chave gerenciada
+      pelo Android Keystore. Nunca são salvas em texto puro, nunca são enviadas para nós, e são
+      usadas apenas para autenticar diretamente com o servidor que você configurou — a conexão
+      é sempre direta entre o seu aparelho e esse servidor, sem qualquer intermediário nosso.
+    </li>
+    <li>
+      <strong>Vídeos favoritados:</strong> lista salva localmente (Android DataStore),
+      separada por fonte de origem (local ou cada servidor configurado).
+    </li>
+    <li>
+      <strong>Miniaturas de vídeo:</strong> geradas e guardadas em cache no próprio
+      dispositivo (memória e armazenamento interno do app), para acelerar a listagem.
+    </li>
+  </ul>
+
+  <h2>O que o app <em>não</em> faz</h2>
+  <ul>
+    <li>Não existe backend, servidor ou nuvem própria do desenvolvedor — o app não envia
+      nenhum dado seu para nós.</li>
+    <li>Não usamos bibliotecas de analytics, rastreamento de comportamento ou publicidade.</li>
+    <li>Não exigimos criação de conta nem coletamos nome, e-mail ou identificadores pessoais.</li>
+    <li>Não compartilhamos, vendemos ou alugamos dados a terceiros — não há dados nossos para
+      compartilhar, pois nada sai do seu aparelho.</li>
+  </ul>
+
+  <h2>Permissões usadas</h2>
+  <ul>
+    <li><strong>Vídeos/armazenamento de mídia</strong> (<code>READ_MEDIA_VIDEO</code> ou
+      <code>READ_EXTERNAL_STORAGE</code>, conforme a versão do Android): para listar e
+      reproduzir vídeos guardados no aparelho.</li>
+    <li><strong>Internet e estado da rede:</strong> exclusivamente para conectar aos
+      servidores SMB/SFTP/FTP que você mesmo cadastra. O app não acessa nenhum outro endereço
+      na internet.</li>
+  </ul>
+
+  <h2>Exclusão de vídeos e permissões de escrita</h2>
+  <p>
+    A exclusão de vídeos locais segue o fluxo de armazenamento com escopo do Android
+    (confirmação do sistema). Em servidores remotos, a exclusão só funciona se a conta
+    configurada tiver permissão de escrita no servidor; caso contrário, o app mostra um erro
+    claro e não realiza a exclusão.
+  </p>
+
+  <h2>Seus direitos e controle sobre os dados</h2>
+  <ul>
+    <li>Você pode remover um servidor cadastrado (e a senha associada) a qualquer momento nas
+      configurações do app.</li>
+    <li>Desinstalar o aplicativo apaga todos os dados salvos por ele (servidores, senhas
+      criptografadas, favoritos e miniaturas em cache), pois tudo fica apenas no seu
+      dispositivo.</li>
+  </ul>
+
+  <h2>Crianças</h2>
+  <p>
+    O app não é direcionado a crianças e não coleta intencionalmente dados de menores de
+    idade — na verdade, não coleta dados pessoais de ninguém, como explicado acima.
+  </p>
+
+  <h2>Alterações nesta política</h2>
+  <p>
+    Se esta política mudar, a data no topo desta página será atualizada. Publicamos sempre a
+    versão mais recente neste mesmo endereço.
+  </p>
+
+  <h2>Contato</h2>
+  <p>
+    Dúvidas sobre privacidade ou sobre o app: <a href="mailto:leonardo@uaitaki.com.br">leonardo@uaitaki.com.br</a>
+  </p>
+
+  <footer>
+    UAiTAKi Soluções Corporativas — U.Ai.TAKi Player Vídeo
+  </footer>
+</div>
+</body>
+</html>
