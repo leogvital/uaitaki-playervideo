@@ -1,0 +1,19 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Assinatura de release — NUNCA versionar (perder a chave = nunca mais atualizar o app publicado)
+/keystore.properties
+/release/
+*.jks
+*.keystore
+
+# Referência de design (screenshots de app de terceiros) — não é nosso material pra publicar
+/ExemploTela/
