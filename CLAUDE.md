@@ -1,11 +1,13 @@
-# CLAUDE.md — NeonPlayer
+# CLAUDE.md — U.Ai.TAKi Player Vídeo
 
 > Contexto de projeto para o Claude Code. Mantenha este arquivo enxuto e específico — atualize conforme decisões arquiteturais mudarem.
 
 ## Visão geral
 
-- **Nome**: NeonPlayer
-- **Package**: `com.example.neonplayer` (ajustar para o package final antes de publicar)
+- **Nome**: U.Ai.TAKi Player Vídeo (nome interno de código/pastas ainda `neonplayer`, ver nota abaixo)
+- **applicationId (Play Store, definitivo)**: `com.uaitaki.playervideo`
+- **namespace (pacote Kotlin interno)**: `com.example.neonplayer` — mantido de propósito diferente do applicationId. Play Store só enxerga o `applicationId`; renomear o pacote Kotlin em ~50 arquivos não trazia nenhum benefício e só aumentava o risco de erro. Não "corrigir" isso sem necessidade real.
+- **Desenvolvedor**: UAiTAKi Soluções Corporativas
 - **Tipo**: App Android nativo, standalone, player de **vídeo** — **sem banco relacional** (sem Room, sem SQLite, sem backend remoto)
 - **Persistência permitida**: `DataStore` (Preferences ou Proto) guardando dados estruturados em JSON/protobuf — servidores configurados, favoritos, credenciais. Não é um schema relacional, mas é persistência local real (não é só "preferências simples").
 - **UI**: Jetpack Compose (Material 3), tema customizado `NeonPlayerTheme`
@@ -78,7 +80,77 @@
 
 ## O que ainda falta decidir (preencher conforme o projeto evolui)
 
-- [ ] Estrutura exata de telas (ex: tela de "Fontes" → lista de vídeos → player fullscreen → tela de favoritos por fonte → tela de config de servidor)
-- [ ] min/target SDK definitivo
+- [x] min/target SDK definitivo — minSdk 29, targetSdk 36 (`app/build.gradle.kts`)
+- [x] Miniaturas de vídeo — geradas e cacheadas em disco+memória (`player/ThumbnailStore.kt`), local e remoto (SMB/SFTP com leitura posicional, FTP com download parcial)
 - [ ] Comportamento quando a conexão remota cai no meio da reprodução (retry automático? aviso?)
-- [ ] Miniaturas de vídeo na lista: gerar localmente ou pular por enquanto?
+- [ ] Feature graphic da Play Store (1024×500) — ainda não gerado
+- [ ] Ativar GitHub Pages manualmente (ver seção de publicação abaixo)
+- [ ] Criar/configurar a conta no Google Play Console e submeter a primeira versão para revisão
+
+## Publicação na Google Play Store
+
+### Status atual (o que já foi feito)
+
+- **applicationId definitivo**: `com.uaitaki.playervideo`, configurado em `app/build.gradle.kts`.
+- **Ícone**: adaptativo (fundo ciano `#6DCFF6` + primeiro plano com a marca do rocket/chevron em laranja/marinho, extraída de `Logomarca/uaitakivideoplayer.svg`), gerado em todas as densidades (`app/src/main/res/mipmap-*`), mais ícone de alta resolução 512×512 em `store/ic_launcher_512.png`.
+- **Chave de assinatura de release**: gerada (`release/uaitaki-playervideo-release.jks`, RSA 4096, alias `uaitaki-playervideo`, válida até 2056). **Nunca versionada** — está em `.gitignore` junto com `keystore.properties` (que guarda as senhas em texto puro localmente, também ignorado).
+- **Build assinado**: `app/build.gradle.kts` tem `signingConfigs.release` lendo de `keystore.properties`; `./gradlew bundleRelease` gera e assina `app/build/outputs/bundle/release/app-release.aab` automaticamente (verificado com `jarsigner -verify`).
+- **Repositório**: https://github.com/leogvital/uaitaki-playervideo (branch `main`). `ExemploTela/` (screenshots de referência do VLC) e `.idea/` ficam fora do repositório de propósito.
+- **Política de privacidade**: conteúdo em `docs/index.html`, já commitado — falta só ativar o GitHub Pages (passo manual, ver abaixo). URL final será `https://leogvital.github.io/uaitaki-playervideo/`.
+- **Ficha da loja**: descrição curta/completa e categoria em `store/listing-pt-BR.md`; 4 screenshots reais do app em `store/screenshots/` (proporção 2:1, dentro do limite do Play Console).
+
+### ⚠️ Backup da chave de assinatura — leia antes de fazer qualquer coisa
+
+O arquivo `release/uaitaki-playervideo-release.jks` e as senhas em `keystore.properties` **não estão em nenhum backup automático** (estão fora do git de propósito). Se esse arquivo se perder:
+
+- Você **nunca mais** conseguirá publicar uma atualização do app já publicado — o Google Play exige a mesma chave (ou a mesma linhagem, se você usar upload key rotation) para toda atualização.
+- A única saída seria publicar como um app novo, perdendo todas as avaliações, instalações e histórico.
+
+**Faça isso agora**: copie a pasta `release/` inteira e o arquivo `keystore.properties` para pelo menos dois lugares fora deste computador (ex: um gerenciador de senhas com anexo de arquivo, um cofre na nuvem da empresa). As senhas dentro de `keystore.properties` também deveriam ir para um gerenciador de senhas, não só ficar em disco.
+
+### Passo a passo: ativar o GitHub Pages (necessário para a política de privacidade)
+
+1. Acesse https://github.com/leogvital/uaitaki-playervideo/settings/pages
+2. Em "Build and deployment" → "Source", escolha **Deploy from a branch**.
+3. Em "Branch", escolha **main** e a pasta **/docs**, depois **Save**.
+4. Espere alguns minutos; a URL `https://leogvital.github.io/uaitaki-playervideo/` deve ficar no ar. Confirme abrindo no navegador antes de colar no Play Console.
+
+### Passo a passo: criar a conta no Google Play Console
+
+1. Acesse https://play.google.com/console/signup com a conta Google que vai administrar o app (recomendado: uma conta da empresa, não pessoal — dá pra adicionar mais gente depois via Play Console → Usuários e permissões).
+2. Pague a taxa única de registro (US$25, cobrada uma vez, sem mensalidade).
+3. Escolha o tipo de conta:
+   - **Conta de organização** (recomendado, já que é a UAiTAKi Soluções Corporativas publicando): pede CNPJ, endereço da empresa e passa por uma verificação de identidade da organização (D-U-N-S number — se a empresa não tiver um, o próprio fluxo do Google ajuda a solicitar um grátis via Dun & Bradstreet, pode levar alguns dias).
+   - **Conta individual**: mais rápida de abrir (só verificação de identidade pessoal), mas o nome exibido como desenvolvedor é o da pessoa física, não da empresa.
+4. Preencha os dados de contato (e-mail de suporte visível na ficha da loja — sugestão: usar o mesmo e-mail de contato da política de privacidade).
+5. Complete a verificação de identidade quando solicitada (documento oficial + eventualmente uma videochamada rápida — o Google avisa na tela quando é necessário).
+
+### Passo a passo: criar o app e submeter a primeira versão
+
+1. No Play Console, **Criar app** → nome "U.Ai.TAKi Player Vídeo", idioma padrão Português (Brasil), tipo **App**, gratuito.
+2. **Política do app** (menu lateral) → declarar:
+   - Política de privacidade: cole a URL do GitHub Pages.
+   - Segurança dos dados (*Data safety*): com base no que o app realmente faz (ver `docs/index.html`) — não coleta nem compartilha dados do usuário; as únicas informações armazenadas (servidores, senhas, favoritos) ficam só no dispositivo, então o formulário deve refletir "nenhum dado coletado/compartilhado".
+   - Classificação indicativa: responder o questionário — o app não hospeda nem produz conteúdo próprio, só reproduz o que já está no aparelho do usuário ou em servidor configurado por ele.
+   - Público-alvo: adultos/geral, não direcionado a crianças.
+   - Anúncios: declarar que o app não tem anúncios.
+3. **Presença na loja** → **Ficha da loja principal**: usar o conteúdo de `store/listing-pt-BR.md` (descrição curta/completa, categoria "Vídeo Players e Editores"), subir `store/ic_launcher_512.png` como ícone e os arquivos de `store/screenshots/` como capturas de tela. **Falta gerar o gráfico de destaque (1024×500)** antes de conseguir publicar — é obrigatório.
+4. **Versão** → **Produção** (ou comece por **Teste interno/fechado** para validar antes de ir a público, recomendado para a primeira publicação) → **Criar nova versão** → subir `app/build/outputs/bundle/release/app-release.aab` (gerar com `./gradlew bundleRelease` se não existir ou estiver desatualizado).
+5. Revisar os avisos do Play Console (ele aponta o que ainda falta preencher) e enviar para revisão. A primeira revisão do Google costuma levar de algumas horas a poucos dias.
+
+### Gerando uma nova versão de release
+
+```bash
+# 1. Suba versionCode e versionName em app/build.gradle.kts
+# 2. Gere o bundle assinado:
+./gradlew bundleRelease
+# Saída: app/build/outputs/bundle/release/app-release.aab
+```
+
+### Botão de doação (planejado para depois da aprovação)
+
+Combinado com o usuário: só entra depois que o app for aprovado e testado em produção. Ao implementar, ter em mente:
+
+- Doação pura (sem "comprar" nenhum conteúdo/funcionalidade dentro do app) normalmente é tratada como fora do escopo do Play Billing — o caminho mais simples costuma ser um botão que abre um link externo (Pix, PayPal, etc.) no navegador, não uma compra dentro do app.
+- A política do Google Play sobre pagamentos/doações pode mudar — **revisar a política vigente em https://support.google.com/googleplay/android-developer/answer/9858738 no momento de implementar**, antes de assumir que o comportamento acima ainda é válido.
+- Não usar `androidx.security.crypto`/DataStore para nada relacionado a pagamento — isso é responsabilidade de um provedor de pagamento externo, não do app.
