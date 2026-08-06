@@ -85,6 +85,7 @@ Requer Android Studio / JDK compatível com o AGP do projeto (ver `gradle/libs.v
 - [x] Ficha da loja: descrição, categoria, screenshots e [gráfico de destaque](store/feature_graphic.png) ([`store/`](store/))
 
 **Pendente (depende de ação manual do mantenedor, fora do que dá pra automatizar):**
+- [ ] Tornar este repositório público (Settings → Danger Zone → Change visibility) — necessário porque o GitHub Pages no plano Free só publica a partir de repositório público, e a política de privacidade precisa ficar acessível sem login para o Google conseguir revisar
 - [ ] Ativar o GitHub Pages (Settings → Pages → branch `main`, pasta `/docs`) para publicar a política de privacidade em `https://leogvital.github.io/uaitaki-playervideo/`
 - [ ] Criar a conta de desenvolvedor no [Google Play Console](https://play.google.com/console/signup) (taxa única de US$25 + verificação de identidade)
 - [ ] Submeter a primeira versão para revisão

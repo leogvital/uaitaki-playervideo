@@ -82,9 +82,9 @@
 
 - [x] min/target SDK definitivo — minSdk 29, targetSdk 36 (`app/build.gradle.kts`)
 - [x] Miniaturas de vídeo — geradas e cacheadas em disco+memória (`player/ThumbnailStore.kt`), local e remoto (SMB/SFTP com leitura posicional, FTP com download parcial)
+- [x] Feature graphic da Play Store (1024×500) — `store/feature_graphic.png`
 - [ ] Comportamento quando a conexão remota cai no meio da reprodução (retry automático? aviso?)
-- [ ] Feature graphic da Play Store (1024×500) — ainda não gerado
-- [ ] Ativar GitHub Pages manualmente (ver seção de publicação abaixo)
+- [ ] Tornar o repositório público e ativar GitHub Pages manualmente (ver seção de publicação abaixo)
 - [ ] Criar/configurar a conta no Google Play Console e submeter a primeira versão para revisão
 
 ## Publicação na Google Play Store
@@ -95,9 +95,9 @@
 - **Ícone**: adaptativo (fundo ciano `#6DCFF6` + primeiro plano com a marca do rocket/chevron em laranja/marinho, extraída de `Logomarca/uaitakivideoplayer.svg`), gerado em todas as densidades (`app/src/main/res/mipmap-*`), mais ícone de alta resolução 512×512 em `store/ic_launcher_512.png`.
 - **Chave de assinatura de release**: gerada (`release/uaitaki-playervideo-release.jks`, RSA 4096, alias `uaitaki-playervideo`, válida até 2056). **Nunca versionada** — está em `.gitignore` junto com `keystore.properties` (que guarda as senhas em texto puro localmente, também ignorado).
 - **Build assinado**: `app/build.gradle.kts` tem `signingConfigs.release` lendo de `keystore.properties`; `./gradlew bundleRelease` gera e assina `app/build/outputs/bundle/release/app-release.aab` automaticamente (verificado com `jarsigner -verify`).
-- **Repositório**: https://github.com/leogvital/uaitaki-playervideo (branch `main`). `ExemploTela/` (screenshots de referência do VLC) e `.idea/` ficam fora do repositório de propósito.
-- **Política de privacidade**: conteúdo em `docs/index.html`, já commitado — falta só ativar o GitHub Pages (passo manual, ver abaixo). URL final será `https://leogvital.github.io/uaitaki-playervideo/`.
-- **Ficha da loja**: descrição curta/completa e categoria em `store/listing-pt-BR.md`; 4 screenshots reais do app em `store/screenshots/` (proporção 2:1, dentro do limite do Play Console).
+- **Repositório**: https://github.com/leogvital/uaitaki-playervideo (branch `main`), **atualmente privado** (confirmado via `api.github.com/repos/...` sem autenticação → 404). `ExemploTela/` (screenshots de referência do VLC) e `.idea/` ficam fora do repositório de propósito.
+- **Política de privacidade**: conteúdo em `docs/index.html`, já commitado — falta tornar o repositório público e ativar o GitHub Pages (passos manuais, ver abaixo). URL final será `https://leogvital.github.io/uaitaki-playervideo/`.
+- **Ficha da loja**: descrição curta/completa e categoria em `store/listing-pt-BR.md`; ícone 512×512 e gráfico de destaque 1024×500 em `store/`; 4 screenshots reais do app em `store/screenshots/` (proporção 2:1, dentro do limite do Play Console).
 
 ### ⚠️ Backup da chave de assinatura — leia antes de fazer qualquer coisa
 
@@ -110,10 +110,13 @@ O arquivo `release/uaitaki-playervideo-release.jks` e as senhas em `keystore.pro
 
 ### Passo a passo: ativar o GitHub Pages (necessário para a política de privacidade)
 
-1. Acesse https://github.com/leogvital/uaitaki-playervideo/settings/pages
-2. Em "Build and deployment" → "Source", escolha **Deploy from a branch**.
-3. Em "Branch", escolha **main** e a pasta **/docs**, depois **Save**.
-4. Espere alguns minutos; a URL `https://leogvital.github.io/uaitaki-playervideo/` deve ficar no ar. Confirme abrindo no navegador antes de colar no Play Console.
+O repositório está privado hoje. No plano GitHub Free, Pages só publica a partir de repositório **público** — e mesmo em planos pagos, o site publicado normalmente fica acessível sem login, que é justamente o que precisamos aqui (o revisor do Google e qualquer usuário do app têm que conseguir abrir a política sem autenticação). Não há nada sensível versionado (chave de assinatura e senhas ficam fora do git), então tornar público é seguro.
+
+1. Acesse https://github.com/leogvital/uaitaki-playervideo/settings, role até "Danger Zone" → **Change visibility** → **Change to public**.
+2. Acesse https://github.com/leogvital/uaitaki-playervideo/settings/pages
+3. Em "Build and deployment" → "Source", escolha **Deploy from a branch**.
+4. Em "Branch", escolha **main** e a pasta **/docs**, depois **Save**.
+5. Espere alguns minutos; a URL `https://leogvital.github.io/uaitaki-playervideo/` deve ficar no ar. Confirme abrindo no navegador antes de colar no Play Console.
 
 ### Passo a passo: criar a conta no Google Play Console
 
@@ -134,7 +137,7 @@ O arquivo `release/uaitaki-playervideo-release.jks` e as senhas em `keystore.pro
    - Classificação indicativa: responder o questionário — o app não hospeda nem produz conteúdo próprio, só reproduz o que já está no aparelho do usuário ou em servidor configurado por ele.
    - Público-alvo: adultos/geral, não direcionado a crianças.
    - Anúncios: declarar que o app não tem anúncios.
-3. **Presença na loja** → **Ficha da loja principal**: usar o conteúdo de `store/listing-pt-BR.md` (descrição curta/completa, categoria "Vídeo Players e Editores"), subir `store/ic_launcher_512.png` como ícone e os arquivos de `store/screenshots/` como capturas de tela. **Falta gerar o gráfico de destaque (1024×500)** antes de conseguir publicar — é obrigatório.
+3. **Presença na loja** → **Ficha da loja principal**: usar o conteúdo de `store/listing-pt-BR.md` (descrição curta/completa, categoria "Vídeo Players e Editores"), subir `store/ic_launcher_512.png` como ícone, `store/feature_graphic.png` como gráfico de destaque, e os arquivos de `store/screenshots/` como capturas de tela.
 4. **Versão** → **Produção** (ou comece por **Teste interno/fechado** para validar antes de ir a público, recomendado para a primeira publicação) → **Criar nova versão** → subir `app/build/outputs/bundle/release/app-release.aab` (gerar com `./gradlew bundleRelease` se não existir ou estiver desatualizado).
 5. Revisar os avisos do Play Console (ele aponta o que ainda falta preencher) e enviar para revisão. A primeira revisão do Google costuma levar de algumas horas a poucos dias.
 
