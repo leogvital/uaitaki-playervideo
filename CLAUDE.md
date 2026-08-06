@@ -83,8 +83,8 @@
 - [x] min/target SDK definitivo — minSdk 29, targetSdk 36 (`app/build.gradle.kts`)
 - [x] Miniaturas de vídeo — geradas e cacheadas em disco+memória (`player/ThumbnailStore.kt`), local e remoto (SMB/SFTP com leitura posicional, FTP com download parcial)
 - [x] Feature graphic da Play Store (1024×500) — `store/feature_graphic.png`
+- [x] Repositório público + GitHub Pages ativado — política de privacidade no ar em `https://leogvital.github.io/uaitaki-playervideo/`
 - [ ] Comportamento quando a conexão remota cai no meio da reprodução (retry automático? aviso?)
-- [ ] Tornar o repositório público e ativar GitHub Pages manualmente (ver seção de publicação abaixo)
 - [ ] Criar/configurar a conta no Google Play Console e submeter a primeira versão para revisão
 
 ## Publicação na Google Play Store
@@ -95,8 +95,8 @@
 - **Ícone**: adaptativo (fundo ciano `#6DCFF6` + primeiro plano com a marca do rocket/chevron em laranja/marinho, extraída de `Logomarca/uaitakivideoplayer.svg`), gerado em todas as densidades (`app/src/main/res/mipmap-*`), mais ícone de alta resolução 512×512 em `store/ic_launcher_512.png`.
 - **Chave de assinatura de release**: gerada (`release/uaitaki-playervideo-release.jks`, RSA 4096, alias `uaitaki-playervideo`, válida até 2056). **Nunca versionada** — está em `.gitignore` junto com `keystore.properties` (que guarda as senhas em texto puro localmente, também ignorado).
 - **Build assinado**: `app/build.gradle.kts` tem `signingConfigs.release` lendo de `keystore.properties`; `./gradlew bundleRelease` gera e assina `app/build/outputs/bundle/release/app-release.aab` automaticamente (verificado com `jarsigner -verify`).
-- **Repositório**: https://github.com/leogvital/uaitaki-playervideo (branch `main`), **atualmente privado** (confirmado via `api.github.com/repos/...` sem autenticação → 404). `ExemploTela/` (screenshots de referência do VLC) e `.idea/` ficam fora do repositório de propósito.
-- **Política de privacidade**: conteúdo em `docs/index.html`, já commitado — falta tornar o repositório público e ativar o GitHub Pages (passos manuais, ver abaixo). URL final será `https://leogvital.github.io/uaitaki-playervideo/`.
+- **Repositório**: https://github.com/leogvital/uaitaki-playervideo (branch `main`), **público**. `ExemploTela/` (screenshots de referência do VLC) e `.idea/` ficam fora do repositório de propósito.
+- **Política de privacidade**: conteúdo em `docs/index.html`, publicado via GitHub Pages em **https://leogvital.github.io/uaitaki-playervideo/** (confirmado no ar, HTTP 200) — é essa URL que vai no campo "Política de privacidade" do Play Console.
 - **Ficha da loja**: descrição curta/completa e categoria em `store/listing-pt-BR.md`; ícone 512×512 e gráfico de destaque 1024×500 em `store/`; 4 screenshots reais do app em `store/screenshots/` (proporção 2:1, dentro do limite do Play Console).
 
 ### ⚠️ Backup da chave de assinatura — leia antes de fazer qualquer coisa
