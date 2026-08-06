@@ -75,6 +75,31 @@ Detalhes de arquitetura e convenções: ver [`CLAUDE.md`](CLAUDE.md).
 
 Requer Android Studio / JDK compatível com o AGP do projeto (ver `gradle/libs.versions.toml`), minSdk 29, targetSdk 36.
 
+## Publicação na Play Store
+
+**Feito:**
+- [x] `applicationId` definitivo (`com.uaitaki.playervideo`) e ícone adaptativo
+- [x] Chave de assinatura de release gerada e configurada (`./gradlew bundleRelease` já gera o `.aab` assinado)
+- [x] Repositório no GitHub
+- [x] Política de privacidade escrita ([`docs/index.html`](docs/index.html))
+- [x] Ficha da loja: descrição, categoria, screenshots e [gráfico de destaque](store/feature_graphic.png) ([`store/`](store/))
+
+**Pendente (depende de ação manual do mantenedor, fora do que dá pra automatizar):**
+- [ ] Ativar o GitHub Pages (Settings → Pages → branch `main`, pasta `/docs`) para publicar a política de privacidade em `https://leogvital.github.io/uaitaki-playervideo/`
+- [ ] Criar a conta de desenvolvedor no [Google Play Console](https://play.google.com/console/signup) (taxa única de US$25 + verificação de identidade)
+- [ ] Submeter a primeira versão para revisão
+
+O passo a passo detalhado de cada item (inclusive backup da chave de assinatura, que é crítico) está em [`CLAUDE.md`](CLAUDE.md#publicação-na-google-play-store).
+
+### Gerando um build de release local
+
+Requer um `keystore.properties` na raiz do projeto (não versionado — cada máquina/pessoa que assina uma release precisa do seu próprio, com `storePassword`, `keyPassword`, `keyAlias` e `storeFile`):
+
+```bash
+./gradlew bundleRelease
+# saída: app/build/outputs/bundle/release/app-release.aab
+```
+
 ## Desenvolvedor
 
 UAiTAKi Soluções Corporativas
