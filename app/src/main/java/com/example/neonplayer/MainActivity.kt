@@ -71,24 +71,30 @@ private sealed interface Screen {
 }
 
 /**
- * Resolve a tela inicial do app a partir do último estado salvo em [PlaybackResumeStore] — usado
+ * Resolve a pilha de telas inicial a partir do último estado salvo em [PlaybackResumeStore] — usado
  * para reabrir o app depois de fechado de verdade (processo encerrado, não só minimizado) exatamente
  * onde o usuário parou: na pasta que estava navegando, ou no player pausado no vídeo/posição salvos.
+ *
+ * Sempre devolve pelo menos uma tela de nível superior (ver [isTopLevel]) na base da pilha — quando
+ * a restauração cai no player, a lista da pasta correspondente entra por baixo dele. Sem isso, abrir
+ * o app direto no player deixava a pilha com um único item; ao voltar (seta ou gesto do sistema),
+ * [NeonPlayerApp] removia esse único item e ficava com uma pilha vazia, derrubando o app.
  */
-private suspend fun resolveInitialScreen(context: Context): Screen {
-    val state = PlaybackResumeStore(context).currentState() ?: return Screen.VideoList()
+private suspend fun resolveInitialScreen(context: Context): List<Screen> {
+    val state = PlaybackResumeStore(context).currentState() ?: return listOf(Screen.VideoList())
 
     val source: SourceRef = if (state.sourceIsLocal) {
         SourceRef.Local
     } else {
-        val serverId = state.remoteServerId ?: return Screen.VideoList()
+        val serverId = state.remoteServerId ?: return listOf(Screen.VideoList())
         SourceRef.Remote(serverId)
     }
     val savedPath = state.folderPath.takeIf { it.isNotBlank() }
+    val browseScreen = Screen.VideoList(source, savedPath)
     val videoSourceId = state.videoSourceId
     val videoId = state.videoId
     if (videoSourceId == null || videoId == null) {
-        return Screen.VideoList(source, savedPath)
+        return listOf(browseScreen)
     }
 
     // Havia um vídeo em reprodução — tenta relistar a pasta salva para reabrir o player nele,
@@ -100,11 +106,14 @@ private suspend fun resolveInitialScreen(context: Context): Screen {
         val videos = browseFolderForResume(context, source, state.folderPath).sortedByOption(sortOption)
         val index = videos.indexOfFirst { it.sourceId == videoSourceId && it.videoId == videoId }
         if (index >= 0) {
-            Screen.Player(videos, index, startPositionMs = state.positionMs, autoPlay = false, canPersistResume = true)
+            listOf(
+                browseScreen,
+                Screen.Player(videos, index, startPositionMs = state.positionMs, autoPlay = false, canPersistResume = true),
+            )
         } else {
-            Screen.VideoList(source, savedPath)
+            listOf(browseScreen)
         }
-    }.getOrElse { Screen.VideoList(source, savedPath) }
+    }.getOrElse { listOf(browseScreen) }
 }
 
 private suspend fun browseFolderForResume(context: Context, source: SourceRef, path: String): List<PlayableVideo> =
@@ -143,23 +152,30 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun NeonPlayerApp(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    var initialScreen by remember { mutableStateOf<Screen?>(null) }
-    LaunchedEffect(Unit) { initialScreen = resolveInitialScreen(context.applicationContext) }
+    var initialScreens by remember { mutableStateOf<List<Screen>?>(null) }
+    LaunchedEffect(Unit) { initialScreens = resolveInitialScreen(context.applicationContext) }
 
-    val resolvedInitialScreen = initialScreen
-    if (resolvedInitialScreen == null) {
+    val resolvedInitialScreens = initialScreens
+    if (resolvedInitialScreens == null) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
         return
     }
 
-    val backStack = remember(resolvedInitialScreen) { mutableStateListOf(resolvedInitialScreen) }
+    val backStack = remember(resolvedInitialScreens) { mutableStateListOf<Screen>().apply { addAll(resolvedInitialScreens) } }
     val current = backStack.last()
     val isTopLevel = isTopLevel(current)
 
+    // Nunca deixa a pilha ficar vazia — resolveInitialScreen já garante uma base de nível superior,
+    // mas manter essa checagem aqui evita repetir o crash (pilha vazia -> backStack.last() explode)
+    // se algum caminho futuro empurrar uma tela sem uma base por baixo.
+    fun popBackStack() {
+        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+    }
+
     BackHandler(enabled = !isTopLevel) {
-        backStack.removeAt(backStack.lastIndex)
+        popBackStack()
     }
 
     Scaffold(
@@ -195,7 +211,7 @@ private fun NeonPlayerApp(modifier: Modifier = Modifier) {
             is Screen.CollectionDetail -> CollectionDetailScreen(
                 modifier = contentModifier,
                 collection = current.collection,
-                onBack = { backStack.removeAt(backStack.lastIndex) },
+                onBack = { popBackStack() },
                 onVideoClick = { videos, index -> backStack.add(Screen.Player(videos, index)) },
             )
 
@@ -220,14 +236,14 @@ private fun NeonPlayerApp(modifier: Modifier = Modifier) {
                 startPositionMs = current.startPositionMs,
                 autoPlay = current.autoPlay,
                 canPersistResume = current.canPersistResume,
-                onBack = { backStack.removeAt(backStack.lastIndex) },
+                onBack = { popBackStack() },
             )
 
             is Screen.RemoteServerForm -> RemoteServerFormScreen(
                 modifier = contentModifier,
                 serverId = current.serverId,
-                onBack = { backStack.removeAt(backStack.lastIndex) },
-                onSaved = { backStack.removeAt(backStack.lastIndex) },
+                onBack = { popBackStack() },
+                onSaved = { popBackStack() },
             )
         }
     }
