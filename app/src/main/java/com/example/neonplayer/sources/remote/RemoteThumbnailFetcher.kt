@@ -13,16 +13,95 @@ import com.hierynomus.msfscc.fileinformation.FileStandardInformation
 import com.hierynomus.mssmb2.SMB2CreateDisposition
 import com.hierynomus.mssmb2.SMB2ShareAccess
 import com.hierynomus.smbj.auth.AuthenticationContext
+import com.hierynomus.smbj.session.Session
 import com.hierynomus.smbj.share.DiskShare
 import java.io.File
 import java.util.EnumSet
+import java.util.concurrent.ConcurrentHashMap
+import net.schmizz.sshj.SSHClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 private const val THUMBNAIL_TIMEOUT_MS = 15_000L
+private const val SESSION_IDLE_TIMEOUT_MS = 60_000L
+private const val MAX_CONCURRENT_THUMBNAILS_PER_SERVER = 3
+
+/**
+ * Reaproveita a conexão/sessão SMB (autenticada) e o cliente SSH por servidor entre chamadas
+ * sucessivas de [fetchRemoteThumbnail] — sem isso, cada miniatura de uma pasta com vários vídeos
+ * abria conexão + autenticava do zero, sendo esse round-trip (não a leitura do frame em si) o
+ * principal motivo da lentidão do preview em fontes remotas. Sessões ociosas por mais de
+ * [SESSION_IDLE_TIMEOUT_MS] são fechadas na próxima chamada.
+ */
+private object RemoteSessionCache {
+    private class Entry<T>(val value: T, @Volatile var lastUsedAt: Long = System.currentTimeMillis())
+
+    private val smbSessions = ConcurrentHashMap<String, Entry<Session>>()
+    private val sshClients = ConcurrentHashMap<String, Entry<SSHClient>>()
+
+    @Synchronized
+    fun smbSession(config: RemoteServerConfig, password: String): Session {
+        evictIdle()
+        smbSessions[config.id]?.let { entry ->
+            if (entry.value.connection.isConnected) {
+                entry.lastUsedAt = System.currentTimeMillis()
+                return entry.value
+            }
+            runCatching { entry.value.close() }
+        }
+        val client = newSmbClient()
+        val connection = client.connect(config.host, config.port)
+        val authContext = AuthenticationContext(config.username, password.toCharArray(), null)
+        val session = connection.authenticate(authContext)
+        smbSessions[config.id] = Entry(session)
+        return session
+    }
+
+    @Synchronized
+    fun invalidateSmb(serverId: String) {
+        smbSessions.remove(serverId)?.let { runCatching { it.value.close() } }
+    }
+
+    @Synchronized
+    fun sshClient(config: RemoteServerConfig, password: String): SSHClient {
+        evictIdle()
+        sshClients[config.id]?.let { entry ->
+            if (entry.value.isConnected) {
+                entry.lastUsedAt = System.currentTimeMillis()
+                return entry.value
+            }
+            runCatching { entry.value.close() }
+        }
+        val client = connectedSshClient(config, password)
+        sshClients[config.id] = Entry(client)
+        return client
+    }
+
+    @Synchronized
+    fun invalidateSsh(serverId: String) {
+        sshClients.remove(serverId)?.let { runCatching { it.value.close() } }
+    }
+
+    private fun evictIdle() {
+        val now = System.currentTimeMillis()
+        smbSessions.entries.removeIf { (_, entry) ->
+            (now - entry.lastUsedAt > SESSION_IDLE_TIMEOUT_MS).also { idle -> if (idle) runCatching { entry.value.close() } }
+        }
+        sshClients.entries.removeIf { (_, entry) ->
+            (now - entry.lastUsedAt > SESSION_IDLE_TIMEOUT_MS).also { idle -> if (idle) runCatching { entry.value.close() } }
+        }
+    }
+}
+
+/** Limita quantas miniaturas do mesmo servidor são buscadas ao mesmo tempo — rolar uma lista grande não deve abrir dezenas de operações simultâneas no mesmo host. */
+private val thumbnailSemaphores = ConcurrentHashMap<String, Semaphore>()
+private fun semaphoreFor(serverId: String): Semaphore =
+    thumbnailSemaphores.computeIfAbsent(serverId) { Semaphore(MAX_CONCURRENT_THUMBNAILS_PER_SERVER) }
 // 5s em vez do início do vídeo — muitos vídeos abrem com um frame preto (fade-in/logo). OPTION_CLOSEST
 // (não OPTION_CLOSEST_SYNC) decodifica o frame exato mais próximo em vez do keyframe anterior, que em
 // vídeos com keyframes espaçados (>5s) podia cair de volta no frame 0 e reproduzir o mesmo problema.
@@ -48,20 +127,22 @@ suspend fun fetchRemoteThumbnail(
     password: String,
     video: RemoteVideo,
 ): Bitmap? = withContext(Dispatchers.IO) {
-    try {
-        withTimeout(THUMBNAIL_TIMEOUT_MS) {
-            runInterruptible {
-                when (video.protocol) {
-                    ServerProtocol.SMB -> fetchSmbThumbnail(config, password, video)
-                    ServerProtocol.SFTP -> fetchSftpThumbnail(config, password, video)
-                    ServerProtocol.FTP -> fetchFtpThumbnail(context, config, password, video)
+    semaphoreFor(config.id).withPermit {
+        try {
+            withTimeout(THUMBNAIL_TIMEOUT_MS) {
+                runInterruptible {
+                    when (video.protocol) {
+                        ServerProtocol.SMB -> fetchSmbThumbnail(config, password, video)
+                        ServerProtocol.SFTP -> fetchSftpThumbnail(config, password, video)
+                        ServerProtocol.FTP -> fetchFtpThumbnail(context, config, password, video)
+                    }
                 }
             }
+        } catch (e: TimeoutCancellationException) {
+            null
+        } catch (e: Exception) {
+            null
         }
-    } catch (e: TimeoutCancellationException) {
-        null
-    } catch (e: Exception) {
-        null
     }
 }
 
@@ -106,51 +187,63 @@ private class PositionedMediaDataSource(
 
 private fun fetchSmbThumbnail(config: RemoteServerConfig, password: String, video: RemoteVideo): Bitmap? {
     val (shareName, _) = splitShareAndPath(config.path)
-    newSmbClient().use { client ->
-        val connection = client.connect(config.host, config.port)
-        val authContext = AuthenticationContext(config.username, password.toCharArray(), null)
-        connection.authenticate(authContext).use { session ->
-            val share = session.connectShare(shareName) as DiskShare
-            share.use { diskShare ->
-                val file = diskShare.openFile(
-                    video.remotePath,
-                    EnumSet.of(AccessMask.GENERIC_READ),
-                    null,
-                    SMB2ShareAccess.ALL,
-                    SMB2CreateDisposition.FILE_OPEN,
-                    null,
-                )
-                return try {
-                    val size = file.getFileInformation(FileStandardInformation::class.java).endOfFile
-                    extractFrame(
-                        PositionedMediaDataSource(size) { position, buffer, offset, length ->
-                            val read = file.read(buffer, position, offset, length)
-                            if (read == -1) -1 else read
-                        },
-                    )
-                } finally {
-                    runCatching { file.close() }
-                }
-            }
+    return try {
+        fetchSmbThumbnailUsing(RemoteSessionCache.smbSession(config, password), shareName, video)
+    } catch (e: Exception) {
+        // A sessão em cache pode ter caído (servidor fechou a conexão) — descarta e tenta uma vez
+        // mais com uma sessão nova antes de desistir.
+        RemoteSessionCache.invalidateSmb(config.id)
+        fetchSmbThumbnailUsing(RemoteSessionCache.smbSession(config, password), shareName, video)
+    }
+}
+
+private fun fetchSmbThumbnailUsing(session: Session, shareName: String, video: RemoteVideo): Bitmap? {
+    val share = session.connectShare(shareName) as DiskShare
+    share.use { diskShare ->
+        val file = diskShare.openFile(
+            video.remotePath,
+            EnumSet.of(AccessMask.GENERIC_READ),
+            null,
+            SMB2ShareAccess.ALL,
+            SMB2CreateDisposition.FILE_OPEN,
+            null,
+        )
+        return try {
+            val size = file.getFileInformation(FileStandardInformation::class.java).endOfFile
+            extractFrame(
+                PositionedMediaDataSource(size) { position, buffer, offset, length ->
+                    val read = file.read(buffer, position, offset, length)
+                    if (read == -1) -1 else read
+                },
+            )
+        } finally {
+            runCatching { file.close() }
         }
     }
 }
 
 private fun fetchSftpThumbnail(config: RemoteServerConfig, password: String, video: RemoteVideo): Bitmap? {
-    connectedSshClient(config, password).use { ssh ->
-        ssh.newSFTPClient().use { sftp ->
-            val file = sftp.open(video.remotePath)
-            return try {
-                val size = file.length()
-                extractFrame(
-                    PositionedMediaDataSource(size) { position, buffer, offset, length ->
-                        val read = file.read(position, buffer, offset, length)
-                        if (read == -1) -1 else read
-                    },
-                )
-            } finally {
-                runCatching { file.close() }
-            }
+    return try {
+        fetchSftpThumbnailUsing(RemoteSessionCache.sshClient(config, password), video)
+    } catch (e: Exception) {
+        RemoteSessionCache.invalidateSsh(config.id)
+        fetchSftpThumbnailUsing(RemoteSessionCache.sshClient(config, password), video)
+    }
+}
+
+private fun fetchSftpThumbnailUsing(ssh: SSHClient, video: RemoteVideo): Bitmap? {
+    ssh.newSFTPClient().use { sftp ->
+        val file = sftp.open(video.remotePath)
+        return try {
+            val size = file.length()
+            extractFrame(
+                PositionedMediaDataSource(size) { position, buffer, offset, length ->
+                    val read = file.read(position, buffer, offset, length)
+                    if (read == -1) -1 else read
+                },
+            )
+        } finally {
+            runCatching { file.close() }
         }
     }
 }

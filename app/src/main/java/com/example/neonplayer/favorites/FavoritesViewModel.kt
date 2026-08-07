@@ -6,6 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.neonplayer.R
 import com.example.neonplayer.sources.PlayableVideo
 import com.example.neonplayer.sources.SOURCE_LOCAL
+import com.example.neonplayer.sources.SortDirection
+import com.example.neonplayer.sources.SortField
+import com.example.neonplayer.sources.SortOption
+import com.example.neonplayer.sources.SortPreferences
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
 import com.example.neonplayer.sources.local.LocalVideoRepository
 import com.example.neonplayer.sources.remote.RemoteListResult
@@ -17,9 +21,11 @@ import com.example.neonplayer.sources.smb.SmbVideoRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class FavoritesUiState(
@@ -39,9 +45,17 @@ class FavoritesViewModel(application: Application) : AndroidViewModel(applicatio
     private val smbRepository = SmbVideoRepository(application)
     private val sftpRepository = SftpVideoRepository(application)
     private val ftpRepository = FtpVideoRepository(application)
+    private val sortPreferences = SortPreferences(application)
 
     private val _uiState = MutableStateFlow(FavoritesUiState())
     val uiState: StateFlow<FavoritesUiState> = _uiState.asStateFlow()
+
+    val sortOption: StateFlow<SortOption> = sortPreferences.sortOptionFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SortOption(SortField.DATE, SortDirection.DESCENDING))
+
+    fun setSortOption(option: SortOption) {
+        viewModelScope.launch { sortPreferences.setSortOption(option) }
+    }
 
     fun refresh() {
         viewModelScope.launch {

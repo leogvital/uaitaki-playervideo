@@ -28,6 +28,8 @@ import com.example.neonplayer.R
 import com.example.neonplayer.player.VideoListRow
 import com.example.neonplayer.player.formatSubtitle
 import com.example.neonplayer.sources.PlayableVideo
+import com.example.neonplayer.sources.sortedByOption
+import com.example.neonplayer.ui.SortMenuButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +41,7 @@ fun CollectionDetailScreen(
     viewModel: CollectionDetailViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val sortOption by viewModel.sortOption.collectAsState()
 
     LaunchedEffect(collection.id) { viewModel.load(collection) }
 
@@ -54,11 +57,12 @@ fun CollectionDetailScreen(
                 title = { Text(collection.name, maxLines = 1) },
                 actions = {
                     IconButton(
-                        onClick = { if (uiState.videos.isNotEmpty()) onVideoClick(uiState.videos, 0) },
+                        onClick = { if (uiState.videos.isNotEmpty()) onVideoClick(uiState.videos.sortedByOption(sortOption), 0) },
                         enabled = uiState.videos.isNotEmpty(),
                     ) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = stringResource(R.string.play_all))
                     }
+                    SortMenuButton(sortOption = sortOption, onSortOptionChange = viewModel::setSortOption)
                 },
             )
         },
@@ -67,15 +71,16 @@ fun CollectionDetailScreen(
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentAlignment = Alignment.Center,
         ) {
+            val sortedVideos = uiState.videos.sortedByOption(sortOption)
             when {
                 uiState.isLoading -> CircularProgressIndicator()
-                uiState.videos.isEmpty() -> Text(stringResource(R.string.collection_empty))
+                sortedVideos.isEmpty() -> Text(stringResource(R.string.collection_empty))
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(uiState.videos, key = { _, video -> video.sourceId + video.videoId }) { index, video ->
+                    itemsIndexed(sortedVideos, key = { _, video -> video.sourceId + video.videoId }) { index, video ->
                         VideoListRow(
                             video = video,
                             subtitle = formatSubtitle(video),
-                            onClick = { onVideoClick(uiState.videos, index) },
+                            onClick = { onVideoClick(sortedVideos, index) },
                             onToggleFavorite = { viewModel.toggleFavorite(video) },
                             onDeleteClick = null,
                         )

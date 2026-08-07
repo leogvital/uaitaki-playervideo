@@ -194,7 +194,10 @@ fun VideoPlayerScreen(
                 is VideoPlayerEvent.DeleteFailed ->
                     coroutineScope.launch { snackbarHostState.showSnackbar(event.message) }
 
-                VideoPlayerEvent.DeleteSucceeded -> onBack()
+                is VideoPlayerEvent.PlaybackError ->
+                    coroutineScope.launch { snackbarHostState.showSnackbar(event.message) }
+
+                VideoPlayerEvent.PlaylistEmpty -> onBack()
             }
         }
     }

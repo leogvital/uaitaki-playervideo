@@ -13,18 +13,20 @@ import com.example.neonplayer.sources.local.LocalVideoRepository
 import com.example.neonplayer.sources.SortDirection
 import com.example.neonplayer.sources.SortField
 import com.example.neonplayer.sources.SortOption
+import com.example.neonplayer.sources.SortPreferences
 import com.example.neonplayer.sources.remote.RemoteServerRepository
 import com.example.neonplayer.sources.remote.RemoteVideo
 import com.example.neonplayer.sources.sftp.SftpVideoRepository
 import com.example.neonplayer.sources.smb.SmbVideoRepository
-import com.example.neonplayer.sources.sortedByOption
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class CollectionDetailUiState(
@@ -46,9 +48,17 @@ class CollectionDetailViewModel(application: Application) : AndroidViewModel(app
         FtpVideoRepository(application),
     )
     private val favoritesRepository = FavoritesRepository(application)
+    private val sortPreferences = SortPreferences(application)
 
     private val _uiState = MutableStateFlow(CollectionDetailUiState())
     val uiState: StateFlow<CollectionDetailUiState> = _uiState.asStateFlow()
+
+    val sortOption: StateFlow<SortOption> = sortPreferences.sortOptionFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SortOption(SortField.DATE, SortDirection.DESCENDING))
+
+    fun setSortOption(option: SortOption) {
+        viewModelScope.launch { sortPreferences.setSortOption(option) }
+    }
 
     private var loadedCollection: FavoriteCollection? = null
 
@@ -78,7 +88,6 @@ class CollectionDetailViewModel(application: Application) : AndroidViewModel(app
                     }
                     .awaitAll()
                     .flatten()
-                    .sortedByOption(SortOption(SortField.NAME, SortDirection.ASCENDING))
             }
             _uiState.value = CollectionDetailUiState(videos = applyFavorites(videos), isLoading = false)
         }

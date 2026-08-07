@@ -1,10 +1,24 @@
 package com.example.neonplayer.sources.sftp
 
 import com.example.neonplayer.sources.remote.RemoteServerConfig
+import java.security.Security
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 
 private const val SFTP_TIMEOUT_MS = 15_000
+
+/**
+ * O provider "BC" embutido no Android é uma versão reduzida do BouncyCastle sem suporte a
+ * X25519/curve25519-sha256, usado por padrão na negociação de key exchange da maioria dos
+ * servidores SSH/SFTP modernos. Sem substituí-lo pelo BouncyCastle completo (dependência
+ * `bcprov-jdk18on`), a conexão falha com "no such algorithm: X25519 for provider BC".
+ */
+private fun ensureFullBouncyCastleProvider() {
+    if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) is BouncyCastleProvider) return
+    Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
+    Security.insertProviderAt(BouncyCastleProvider(), 1)
+}
 
 /**
  * O app não oferece gerenciamento de known_hosts/verificação de fingerprint para os servidores
@@ -16,6 +30,7 @@ private const val SFTP_TIMEOUT_MS = 15_000
  * bloquear indefinidamente num host que não responde, o que travaria a UI ou a reprodução.
  */
 internal fun connectedSshClient(config: RemoteServerConfig, password: String): SSHClient {
+    ensureFullBouncyCastleProvider()
     val client = SSHClient()
     client.addHostKeyVerifier(PromiscuousVerifier())
     client.connectTimeout = SFTP_TIMEOUT_MS

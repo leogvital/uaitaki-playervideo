@@ -89,6 +89,11 @@ dependencies {
     // Fontes remotas: SMB / SFTP / FTP
     implementation(libs.smbj)
     implementation(libs.sshj)
+    // BouncyCastle completo: o provider "BC" embutido no Android é uma versão reduzida sem
+    // suporte a X25519/curve25519, exigido pela negociação de key exchange de servidores SSH/SFTP
+    // modernos (ver SftpClients.kt) — sem esta dependência a conexão falha com
+    // "no such algorithm: X25519 for provider BC".
+    implementation(libs.bouncycastle)
     implementation(libs.commons.net)
 
     testImplementation(libs.junit)

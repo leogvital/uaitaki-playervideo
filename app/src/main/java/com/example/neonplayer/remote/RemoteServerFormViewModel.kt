@@ -8,6 +8,8 @@ import com.example.neonplayer.sources.remote.RemoteCredentialStore
 import com.example.neonplayer.sources.remote.RemoteServerConfig
 import com.example.neonplayer.sources.remote.RemoteServerRepository
 import com.example.neonplayer.sources.remote.ServerProtocol
+import com.example.neonplayer.sources.smb.SmbShareListResult
+import com.example.neonplayer.sources.smb.listSmbShares
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -30,6 +32,9 @@ data class RemoteServerFormUiState(
     val path: String = "",
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
+    val isListingShares: Boolean = false,
+    val availableShares: List<String> = emptyList(),
+    val shareListError: String? = null,
 )
 
 private val DEFAULT_PORTS = ServerProtocol.entries.map { it.defaultPort.toString() }.toSet()
@@ -97,7 +102,58 @@ class RemoteServerFormViewModel(application: Application) : AndroidViewModel(app
     }
 
     fun updatePath(value: String) {
-        _uiState.value = _uiState.value.copy(path = value)
+        _uiState.value = _uiState.value.copy(path = value, availableShares = emptyList(), shareListError = null)
+    }
+
+    /**
+     * Lista os compartilhamentos do servidor via SRVSVC ([listSmbShares]) usando host/porta/usuário
+     * já preenchidos no formulário, sem exigir que o servidor já esteja salvo. Best-effort: em caso
+     * de erro (servidor bloqueia SRVSVC, protocolo não suportado, etc.) mostra a mensagem e mantém
+     * a entrada manual do caminho disponível normalmente.
+     */
+    fun listShares() {
+        val state = _uiState.value
+        val port = state.port.toIntOrNull()
+        if (state.host.isBlank() || port == null) {
+            _uiState.value = state.copy(shareListError = getApplication<Application>().getString(R.string.remote_form_invalid))
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isListingShares = true, shareListError = null, availableShares = emptyList())
+            val config = RemoteServerConfig(
+                id = state.id,
+                protocol = ServerProtocol.SMB,
+                name = state.name,
+                host = state.host.trim(),
+                port = port,
+                username = state.username.trim(),
+                path = "",
+            )
+            when (val result = listSmbShares(config, state.password)) {
+                is SmbShareListResult.Success -> _uiState.value = _uiState.value.copy(
+                    isListingShares = false,
+                    availableShares = result.shareNames,
+                    shareListError = if (result.shareNames.isEmpty()) {
+                        getApplication<Application>().getString(R.string.remote_smb_no_shares_found)
+                    } else {
+                        null
+                    },
+                )
+
+                is SmbShareListResult.Error -> _uiState.value = _uiState.value.copy(
+                    isListingShares = false,
+                    shareListError = result.message,
+                )
+            }
+        }
+    }
+
+    fun selectShare(shareName: String) {
+        _uiState.value = _uiState.value.copy(path = shareName, availableShares = emptyList())
+    }
+
+    fun dismissShareList() {
+        _uiState.value = _uiState.value.copy(availableShares = emptyList())
     }
 
     fun save() {

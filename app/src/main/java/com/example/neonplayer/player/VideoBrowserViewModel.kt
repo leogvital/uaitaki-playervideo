@@ -12,6 +12,10 @@ import com.example.neonplayer.favorites.FavoritesRepository
 import com.example.neonplayer.sources.BrowseFolder
 import com.example.neonplayer.sources.PlayableVideo
 import com.example.neonplayer.sources.RecursiveVideoFetcher
+import com.example.neonplayer.sources.SortDirection
+import com.example.neonplayer.sources.SortField
+import com.example.neonplayer.sources.SortOption
+import com.example.neonplayer.sources.SortPreferences
 import com.example.neonplayer.sources.SourceRef
 import com.example.neonplayer.sources.favoriteSourceId
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
@@ -66,6 +70,14 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     private val ftpRepository = FtpVideoRepository(application)
     private val favoritesRepository = FavoritesRepository(application)
     private val favoriteCollectionsRepository = FavoriteCollectionsRepository(application)
+    private val sortPreferences = SortPreferences(application)
+
+    val sortOption: StateFlow<SortOption> = sortPreferences.sortOptionFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SortOption(SortField.DATE, SortDirection.DESCENDING))
+
+    fun setSortOption(option: SortOption) {
+        viewModelScope.launch { sortPreferences.setSortOption(option) }
+    }
     private val recursiveVideoFetcher = RecursiveVideoFetcher(
         localVideoRepository, remoteServerRepository, smbRepository, sftpRepository, ftpRepository,
     )
@@ -297,15 +309,20 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    /** Vídeo aguardando confirmação do diálogo do sistema (escopo de armazenamento local) — guardado aqui para permitir remoção otimista da lista quando a confirmação chegar (ver [onSystemDeleteConfirmed]). */
+    private var pendingSystemDeleteVideo: PlayableVideo? = null
+
     fun deleteVideo(video: PlayableVideo) {
         viewModelScope.launch {
             when (val source = _selectedSource.value) {
                 SourceRef.Local -> {
                     val localVideo = video as? LocalVideo ?: return@launch
                     when (val result = localVideoRepository.deleteVideo(localVideo)) {
-                        DeleteVideoResult.Success -> refresh()
-                        is DeleteVideoResult.RequiresConfirmation ->
+                        DeleteVideoResult.Success -> removeVideoLocally(localVideo)
+                        is DeleteVideoResult.RequiresConfirmation -> {
+                            pendingSystemDeleteVideo = localVideo
                             _events.emit(VideoBrowserEvent.RequestSystemDeleteConfirmation(result.intentSender))
+                        }
 
                         DeleteVideoResult.Failed -> _events.emit(
                             VideoBrowserEvent.DeleteFailed(
@@ -324,7 +341,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
                         ServerProtocol.FTP -> ftpRepository.deleteVideo(config, remoteVideo)
                     }
                     when (result) {
-                        RemoteDeleteResult.Success -> refresh()
+                        RemoteDeleteResult.Success -> removeVideoLocally(remoteVideo)
                         RemoteDeleteResult.PermissionDenied -> _events.emit(
                             VideoBrowserEvent.DeleteFailed(
                                 getApplication<Application>().getString(R.string.remote_error_permission_denied),
@@ -338,8 +355,19 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    /**
+     * Remove o vídeo da lista em memória sem relistar a fonte inteira — uma exclusão remota já
+     * fez uma viagem de rede (connect+auth+delete); relistar em seguida (connect+auth+list) só
+     * para refletir uma remoção que já sabemos que aconteceu dobra o tempo de espera à toa.
+     */
+    private fun removeVideoLocally(video: PlayableVideo) {
+        rawVideos.value = rawVideos.value.filterNot { it.videoId == video.videoId }
+    }
+
     /** Chamado após o usuário confirmar a exclusão no diálogo do sistema (fluxo de escopo de armazenamento local). */
     fun onSystemDeleteConfirmed() {
-        refresh()
+        val video = pendingSystemDeleteVideo
+        pendingSystemDeleteVideo = null
+        if (video != null) removeVideoLocally(video) else refresh()
     }
 }

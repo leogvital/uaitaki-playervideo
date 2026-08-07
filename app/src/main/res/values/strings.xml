@@ -21,6 +21,8 @@
     <string name="delete">Excluir</string>
     <string name="cancel">Cancelar</string>
     <string name="error_deleting_video">Não foi possível excluir o vídeo</string>
+    <string name="playback_error_skipping">Não foi possível reproduzir \"%1$s\" — pulando para o próximo</string>
+    <string name="playback_error_last_item">Não foi possível reproduzir \"%1$s\"</string>
 
     <string name="remote_servers_title">Servidores remotos</string>
     <string name="remote_add_server">Adicionar servidor</string>
@@ -41,6 +43,9 @@
     <string name="remote_server_path_hint_generic">Ex: /home/usuario/Videos — vazio usa a raiz do servidor</string>
     <string name="remote_form_invalid">Preencha host e porta corretamente</string>
     <string name="remote_save">Salvar</string>
+    <string name="remote_smb_list_shares">Listar compartilhamentos</string>
+    <string name="remote_smb_no_shares_found">Nenhum compartilhamento encontrado — digite o caminho manualmente</string>
+    <string name="remote_smb_choose_share">Escolha um compartilhamento</string>
 
     <string name="remote_no_videos_found">Nenhum vídeo encontrado nesse servidor</string>
     <string name="remote_retry">Tentar novamente</string>

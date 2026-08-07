@@ -29,12 +29,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
@@ -82,12 +79,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.neonplayer.R
 import com.example.neonplayer.favorites.FavoriteCollection
 import com.example.neonplayer.sources.PlayableVideo
-import com.example.neonplayer.sources.SortDirection
-import com.example.neonplayer.sources.SortField
-import com.example.neonplayer.sources.SortOption
 import com.example.neonplayer.sources.SourceRef
 import com.example.neonplayer.sources.VideoViewMode
 import com.example.neonplayer.sources.sortedByOption
+import com.example.neonplayer.ui.SortMenuButton
 import kotlinx.coroutines.launch
 
 private val requiredVideoPermission: String
@@ -118,13 +113,10 @@ fun VideoBrowserScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<PlayableVideo?>(null) }
     var sourceMenuExpanded by remember { mutableStateOf(false) }
-    var sortMenuExpanded by remember { mutableStateOf(false) }
     var showCollectionChooser by remember { mutableStateOf(false) }
     var showCollectionNameDialog by remember { mutableStateOf(false) }
     var viewMode by rememberSaveable { mutableStateOf(VideoViewMode.LIST) }
-    // SortOption não é Parcelable/Serializable de forma trivial — sobrevive a recomposição, não a
-    // recriação de processo (perda aceitável para uma preferência de ordenação).
-    var sortOption by remember { mutableStateOf(SortOption(SortField.DATE, SortDirection.DESCENDING)) }
+    val sortOption by viewModel.sortOption.collectAsState()
 
     // Recarrega sempre que a tela volta a ficar visível (ex: voltando do player depois de excluir
     // um vídeo) — sem isso, trocar de tela e voltar para a mesma fonte não atualizava a lista.
@@ -269,47 +261,7 @@ fun VideoBrowserScreen(
                                 contentDescription = stringResource(R.string.toggle_view_mode),
                             )
                         }
-                        Box {
-                            IconButton(onClick = { sortMenuExpanded = true }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Sort,
-                                    contentDescription = stringResource(R.string.sort_videos),
-                                )
-                            }
-                            DropdownMenu(expanded = sortMenuExpanded, onDismissRequest = { sortMenuExpanded = false }) {
-                                SortField.entries.forEach { field ->
-                                    DropdownMenuItem(
-                                        text = { Text(sortFieldLabel(field)) },
-                                        trailingIcon = {
-                                            if (sortOption.field == field) {
-                                                Icon(
-                                                    imageVector = if (sortOption.direction == SortDirection.ASCENDING) {
-                                                        Icons.Filled.ArrowUpward
-                                                    } else {
-                                                        Icons.Filled.ArrowDownward
-                                                    },
-                                                    contentDescription = null,
-                                                )
-                                            }
-                                        },
-                                        onClick = {
-                                            sortOption = if (sortOption.field == field) {
-                                                sortOption.copy(
-                                                    direction = if (sortOption.direction == SortDirection.ASCENDING) {
-                                                        SortDirection.DESCENDING
-                                                    } else {
-                                                        SortDirection.ASCENDING
-                                                    },
-                                                )
-                                            } else {
-                                                SortOption(field, SortDirection.ASCENDING)
-                                            }
-                                            sortMenuExpanded = false
-                                        },
-                                    )
-                                }
-                            }
-                        }
+                        SortMenuButton(sortOption = sortOption, onSortOptionChange = viewModel::setSortOption)
                     },
                 )
             }
@@ -489,13 +441,6 @@ fun VideoBrowserScreen(
             },
         )
     }
-}
-
-@Composable
-private fun sortFieldLabel(field: SortField): String = when (field) {
-    SortField.NAME -> stringResource(R.string.sort_by_name)
-    SortField.DATE -> stringResource(R.string.sort_by_date)
-    SortField.SIZE -> stringResource(R.string.sort_by_size)
 }
 
 @Composable

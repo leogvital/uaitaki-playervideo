@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paths extraídos de Logomarca/uaitakivideoplayer.svg (foguete + chevron), sem o texto do
+     lockup completo — só a marca circular vira o ícone do app. O grupo abaixo reescala as
+     coordenadas originais do SVG (foguete+chevron inscritos num círculo de raio 72.3 centrado em
+     244.5,297.6) para a zona segura central de um ícone adaptativo 108x108. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.497925"
+        android:scaleY="0.497925"
+        android:translateX="-67.7435"
+        android:translateY="-94.1826">
+        <path android:pathData="M196,272v44.5l11.2,-10.3c0.8,-0.8 2.1,-0.7 2.9,0.1l0.8,0.9c0.8,0.8 0.7,2.1 -0.1,2.9l-25.8,24 14.2,-10.3h48.6v-51.8h-51.8ZM227.4,299.5l-0.4,7.4 -11.3,9 1.1,-8h-0.7c0,0.1 -6.5,-6.9 -6.5,-6.9l0.2,-0.7 -8.1,0.4 9.9,-10.6 7.3,0.3s14.7,-14 27.8,-17.2c-4,12.6 -19.4,26.3 -19.4,26.3Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="188.1"
+                    android:startY="283.3"
+                    android:endX="247.1"
+                    android:endY="324.6"
+                    android:startColor="#BE1E2D"
+                    android:endColor="#EC008C" />
+            </aapt:attr>
+        </path>
+        <path android:pathData="M252.5,334.5L252.5,262.3L288.6,298.4Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="238.6"
+                    android:startY="304.9"
+                    android:endX="282.1"
+                    android:endY="284.6"
+                    android:startColor="#F15A29"
+                    android:endColor="#BE1E2D" />
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M273.7,262.3L273.7,278.6L293.4,298.4L273.7,318.2L273.7,334.5L309.8,298.4Z"
+            android:fillColor="#EF4136" />
+    </group>
+</vector>

@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -53,7 +54,9 @@ data class VideoPlayerUiState(
 sealed interface VideoPlayerEvent {
     data class RequestSystemDeleteConfirmation(val intentSender: IntentSender) : VideoPlayerEvent
     data class DeleteFailed(val message: String) : VideoPlayerEvent
-    data object DeleteSucceeded : VideoPlayerEvent
+    /** A fila ficou vazia após uma exclusão — não há mais nada para tocar, então a tela deve fechar. */
+    data object PlaylistEmpty : VideoPlayerEvent
+    data class PlaybackError(val message: String) : VideoPlayerEvent
 }
 
 class VideoPlayerViewModel(application: Application) : AndroidViewModel(application) {
@@ -90,6 +93,17 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                 _uiState.value = _uiState.value.copy(isShuffleEnabled = shuffleModeEnabled)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                val failedTitle = playlist.getOrNull(player.currentMediaItemIndex)?.displayName.orEmpty()
+                val hasNext = player.hasNextMediaItem()
+                val message = getApplication<Application>().getString(
+                    if (hasNext) R.string.playback_error_skipping else R.string.playback_error_last_item,
+                    failedTitle,
+                )
+                viewModelScope.launch { _events.emit(VideoPlayerEvent.PlaybackError(message)) }
+                if (hasNext) skipToNext()
             }
         })
 
@@ -188,7 +202,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             when (video) {
                 is LocalVideo -> when (val result = localVideoRepository.deleteVideo(video)) {
-                    DeleteVideoResult.Success -> _events.emit(VideoPlayerEvent.DeleteSucceeded)
+                    DeleteVideoResult.Success -> removeCurrentFromPlaylist()
                     is DeleteVideoResult.RequiresConfirmation ->
                         _events.emit(VideoPlayerEvent.RequestSystemDeleteConfirmation(result.intentSender))
 
@@ -211,7 +225,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                         ServerProtocol.FTP -> ftpRepository.deleteVideo(config, video)
                     }
                     when (result) {
-                        RemoteDeleteResult.Success -> _events.emit(VideoPlayerEvent.DeleteSucceeded)
+                        RemoteDeleteResult.Success -> removeCurrentFromPlaylist()
                         RemoteDeleteResult.PermissionDenied -> _events.emit(
                             VideoPlayerEvent.DeleteFailed(getApplication<Application>().getString(R.string.remote_error_permission_denied)),
                         )
@@ -227,7 +241,24 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     /** Chamado após o usuário confirmar a exclusão no diálogo do sistema (fluxo de escopo de armazenamento local). */
     fun onSystemDeleteConfirmed() {
-        viewModelScope.launch { _events.emit(VideoPlayerEvent.DeleteSucceeded) }
+        viewModelScope.launch { removeCurrentFromPlaylist() }
+    }
+
+    /**
+     * Remove o vídeo atual da fila e do player após uma exclusão bem-sucedida, deixando o próximo
+     * item tocando em seguida — em vez de sempre sair da tela do player, que era o comportamento
+     * anterior mesmo quando ainda havia mais vídeos na fila.
+     */
+    private fun removeCurrentFromPlaylist() {
+        val index = player.currentMediaItemIndex
+        if (index !in playlist.indices) return
+        playlist = playlist.toMutableList().apply { removeAt(index) }
+        player.removeMediaItem(index)
+        if (playlist.isEmpty()) {
+            viewModelScope.launch { _events.emit(VideoPlayerEvent.PlaylistEmpty) }
+        } else {
+            updateCurrentItemState()
+        }
     }
 
     private fun updateCurrentItemState() {

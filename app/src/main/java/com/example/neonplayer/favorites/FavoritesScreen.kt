@@ -52,11 +52,9 @@ import com.example.neonplayer.player.VideoGridCard
 import com.example.neonplayer.player.VideoListRow
 import com.example.neonplayer.player.formatSubtitle
 import com.example.neonplayer.sources.PlayableVideo
-import com.example.neonplayer.sources.SortDirection
-import com.example.neonplayer.sources.SortField
-import com.example.neonplayer.sources.SortOption
 import com.example.neonplayer.sources.VideoViewMode
 import com.example.neonplayer.sources.sortedByOption
+import com.example.neonplayer.ui.SortMenuButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,7 +69,7 @@ fun FavoritesScreen(
     val collections by collectionsViewModel.collections.collectAsState(initial = emptyList())
     var viewMode by rememberSaveable { mutableStateOf(VideoViewMode.LIST) }
     var pendingDeleteCollection by remember { mutableStateOf<FavoriteCollection?>(null) }
-    val sortOption = SortOption(SortField.DATE, SortDirection.DESCENDING)
+    val sortOption by viewModel.sortOption.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
@@ -87,6 +85,7 @@ fun FavoritesScreen(
                             contentDescription = stringResource(R.string.toggle_view_mode),
                         )
                     }
+                    SortMenuButton(sortOption = sortOption, onSortOptionChange = viewModel::setSortOption)
                 },
             )
         },
