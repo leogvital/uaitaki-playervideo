@@ -76,6 +76,14 @@
 ./gradlew installDebug
 ```
 
+- Esta máquina não tem `JAVA_HOME`/JDK no PATH — `./gradlew` direto falha. Use `scripts/build-apk.ps1` (PowerShell), que já configura `JAVA_HOME` para o JBR do Android Studio, localiza o artefato gerado e opcionalmente instala num dispositivo via adb:
+  ```powershell
+  .\scripts\build-apk.ps1                                    # APK debug
+  .\scripts\build-apk.ps1 -Install                           # gera e instala (erro se houver >1 dispositivo/emulador — use -DeviceSerial)
+  .\scripts\build-apk.ps1 -Release -Install -DeviceSerial XXXX
+  .\scripts\build-apk.ps1 -Bundle                            # AAB de release para a Play Store
+  ```
+
 - Sync do Gradle às vezes trava — se acontecer, `File > Invalidate Caches / Restart` no Android Studio, ou `./gradlew --stop` no terminal.
 
 ## O que ainda falta decidir (preencher conforme o projeto evolui)

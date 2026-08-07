@@ -86,6 +86,7 @@
 
     <string name="navigate_up">Voltar para a pasta anterior</string>
     <string name="open_folder">Abrir pasta</string>
+    <string name="browse_navigate_up_shortcut">.. </string>
 
     <string name="toggle_resize_mode">Alternar proporção do vídeo</string>
     <string name="toggle_shuffle">Ordem aleatória</string>

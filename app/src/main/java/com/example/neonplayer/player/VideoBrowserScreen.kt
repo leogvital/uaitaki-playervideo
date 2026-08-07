@@ -24,8 +24,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
@@ -47,6 +49,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -65,6 +68,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -83,6 +87,7 @@ import com.example.neonplayer.sources.SourceRef
 import com.example.neonplayer.sources.VideoViewMode
 import com.example.neonplayer.sources.sortedByOption
 import com.example.neonplayer.ui.SortMenuButton
+import com.example.neonplayer.ui.pullToRefreshAtEnd
 import kotlinx.coroutines.launch
 
 private val requiredVideoPermission: String
@@ -98,6 +103,7 @@ fun VideoBrowserScreen(
     initialSource: SourceRef?,
     onVideoClick: (List<PlayableVideo>, Int) -> Unit,
     modifier: Modifier = Modifier,
+    initialPath: String? = null,
     viewModel: VideoBrowserViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -105,6 +111,7 @@ fun VideoBrowserScreen(
     val selectedSource by viewModel.selectedSource.collectAsState()
     val sourceOptions by viewModel.sourceOptions.collectAsState()
     val canNavigateUp by viewModel.canNavigateUp.collectAsState()
+    val currentPath by viewModel.currentPath.collectAsState()
     val isFetchingPlayAll by viewModel.isFetchingPlayAll.collectAsState()
     val selectionModeActive by viewModel.selectionModeActive.collectAsState()
     val selectedFolders by viewModel.selectedFolders.collectAsState()
@@ -120,8 +127,10 @@ fun VideoBrowserScreen(
 
     // Recarrega sempre que a tela volta a ficar visível (ex: voltando do player depois de excluir
     // um vídeo) — sem isso, trocar de tela e voltar para a mesma fonte não atualizava a lista.
+    // initialPath só é usado nesta primeira chamada (restauração ao abrir o app — ver MainActivity);
+    // navegação manual depois disso passa por navigateInto/navigateUp normalmente.
     LaunchedEffect(initialSource) {
-        if (initialSource != null) viewModel.selectSource(initialSource) else viewModel.refresh()
+        if (initialSource != null) viewModel.selectSource(initialSource, initialPath) else viewModel.refresh()
     }
 
     BackHandler(enabled = canNavigateUp || selectionModeActive) {
@@ -215,22 +224,41 @@ fun VideoBrowserScreen(
                         }
                     },
                     title = {
-                        Box {
-                            Row(
-                                modifier = Modifier.clickable { sourceMenuExpanded = true },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(selectedLabel, maxLines = 1)
-                                Icon(imageVector = Icons.Filled.ArrowDropDown, contentDescription = null)
+                        Column {
+                            Box {
+                                Row(
+                                    modifier = Modifier.clickable { sourceMenuExpanded = true },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(selectedLabel, maxLines = 1)
+                                    Icon(imageVector = Icons.Filled.ArrowDropDown, contentDescription = null)
+                                }
+                                DropdownMenu(expanded = sourceMenuExpanded, onDismissRequest = { sourceMenuExpanded = false }) {
+                                    sourceOptions.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option.label) },
+                                            onClick = {
+                                                sourceMenuExpanded = false
+                                                viewModel.selectSource(option.ref)
+                                            },
+                                        )
+                                    }
+                                }
                             }
-                            DropdownMenu(expanded = sourceMenuExpanded, onDismissRequest = { sourceMenuExpanded = false }) {
-                                sourceOptions.forEach { option ->
-                                    DropdownMenuItem(
-                                        text = { Text(option.label) },
-                                        onClick = {
-                                            sourceMenuExpanded = false
-                                            viewModel.selectSource(option.ref)
-                                        },
+                            if (canNavigateUp) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = stringResource(R.string.browse_navigate_up_shortcut),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.clickable { viewModel.navigateUp() },
+                                    )
+                                    Text(
+                                        text = formatBreadcrumbPath(currentPath),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     )
                                 }
                             }
@@ -276,6 +304,26 @@ fun VideoBrowserScreen(
         ) {
             val folders = uiState.folders
             val sortedVideos = uiState.videos.sortedByOption(sortOption)
+
+            // Semeadas com a posição salva no ViewModel para não voltar ao topo da lista ao
+            // retornar do player ou depois de excluir um vídeo (ver VideoBrowserViewModel).
+            val listState = rememberLazyListState(viewModel.listScrollIndex, viewModel.listScrollOffset)
+            LaunchedEffect(listState) {
+                snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+                    .collect { (index, offset) ->
+                        viewModel.listScrollIndex = index
+                        viewModel.listScrollOffset = offset
+                    }
+            }
+            val gridState = rememberLazyGridState(viewModel.listScrollIndex, viewModel.listScrollOffset)
+            LaunchedEffect(gridState) {
+                snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
+                    .collect { (index, offset) ->
+                        viewModel.listScrollIndex = index
+                        viewModel.listScrollOffset = offset
+                    }
+            }
+
             when {
                 isLocalSource && !hasPermission -> PermissionRequest(
                     onRequestPermission = { permissionLauncher.launch(requiredVideoPermission) },
@@ -296,7 +344,16 @@ fun VideoBrowserScreen(
 
                 folders.isEmpty() && sortedVideos.isEmpty() -> Text(stringResource(R.string.no_videos_found))
 
-                viewMode == VideoViewMode.LIST -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                viewMode == VideoViewMode.LIST -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pullToRefreshAtEnd(
+                            canScrollForward = { listState.canScrollForward },
+                            enabled = !uiState.isLoading,
+                            onRefresh = viewModel::refresh,
+                        ),
+                ) {
                     items(folders, key = { "folder:" + it.path }) { folder ->
                         FolderListRow(
                             folder = folder,
@@ -323,7 +380,14 @@ fun VideoBrowserScreen(
 
                 else -> LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
-                    modifier = Modifier.fillMaxSize(),
+                    state = gridState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pullToRefreshAtEnd(
+                            canScrollForward = { gridState.canScrollForward },
+                            enabled = !uiState.isLoading,
+                            onRefresh = viewModel::refresh,
+                        ),
                     contentPadding = PaddingValues(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -442,6 +506,9 @@ fun VideoBrowserScreen(
         )
     }
 }
+
+/** Formata o caminho relativo da pasta atual para exibição no breadcrumb (ex.: "Filmes/Viagem/" -> "/Filmes/Viagem"). */
+private fun formatBreadcrumbPath(path: String): String = "/" + path.trim('/')
 
 @Composable
 private fun PermissionRequest(onRequestPermission: () -> Unit, modifier: Modifier = Modifier) {

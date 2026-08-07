@@ -11,6 +11,7 @@ import com.example.neonplayer.favorites.FavoriteCollectionsRepository
 import com.example.neonplayer.favorites.FavoritesRepository
 import com.example.neonplayer.sources.BrowseFolder
 import com.example.neonplayer.sources.PlayableVideo
+import com.example.neonplayer.sources.PlaybackResumeStore
 import com.example.neonplayer.sources.RecursiveVideoFetcher
 import com.example.neonplayer.sources.SortDirection
 import com.example.neonplayer.sources.SortField
@@ -71,6 +72,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     private val favoritesRepository = FavoritesRepository(application)
     private val favoriteCollectionsRepository = FavoriteCollectionsRepository(application)
     private val sortPreferences = SortPreferences(application)
+    private val playbackResumeStore = PlaybackResumeStore(application)
 
     val sortOption: StateFlow<SortOption> = sortPreferences.sortOptionFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SortOption(SortField.DATE, SortDirection.DESCENDING))
@@ -98,6 +100,15 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
 
     /** Pilha de pastas visitadas na fonte atual — o primeiro elemento é sempre a raiz dessa fonte. */
     private val folderStack = mutableListOf("")
+
+    /**
+     * Posição de scroll da listagem atual, lida uma única vez ao (re)criar a tela e atualizada
+     * continuamente por ela — sobrevive à ida-e-volta pro Player porque este ViewModel não é
+     * recriado (é efetivamente singleton por Activity via [androidx.lifecycle.viewmodel.compose.viewModel]),
+     * só a `LazyListState`/`LazyGridState` da composable é que se perde ao desmontar a tela.
+     */
+    var listScrollIndex: Int = 0
+    var listScrollOffset: Int = 0
 
     private val _currentPath = MutableStateFlow("")
     val currentPath: StateFlow<String> = _currentPath.asStateFlow()
@@ -148,19 +159,33 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         else -> video
     }
 
-    /** Troca a fonte selecionada, volta para a raiz dela e recarrega. Ignorado se já for a fonte atual. */
-    fun selectSource(source: SourceRef) {
+    /**
+     * Troca a fonte selecionada e recarrega. Ignorado se já for a fonte atual. [initialPath], se
+     * informado (usado só ao restaurar a última pasta navegada no início do app — ver
+     * [MainActivity]), abre direto nessa pasta em vez da raiz; a pilha de navegação nesse caso só
+     * tem 2 níveis (raiz + pasta restaurada) em vez do caminho completo intermediário — uma
+     * simplificação aceitável, já que a navegação normal a partir daí funciona como sempre.
+     */
+    fun selectSource(source: SourceRef, initialPath: String? = null) {
         if (source == _selectedSource.value) return
         _selectedSource.value = source
         cancelFolderSelection()
+        resetScrollPosition()
         viewModelScope.launch {
             val root = rootPathFor(source)
+            val startPath = initialPath?.takeIf { it.isNotBlank() && it != root } ?: root
             folderStack.clear()
             folderStack.add(root)
-            _currentPath.value = root
-            _canNavigateUp.value = false
+            if (startPath != root) folderStack.add(startPath)
+            _currentPath.value = startPath
+            _canNavigateUp.value = folderStack.size > 1
             refresh()
         }
+    }
+
+    private fun resetScrollPosition() {
+        listScrollIndex = 0
+        listScrollOffset = 0
     }
 
     private suspend fun rootPathFor(source: SourceRef): String = when (source) {
@@ -179,6 +204,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         _currentPath.value = folder.path
         _canNavigateUp.value = folderStack.size > 1
         cancelFolderSelection()
+        resetScrollPosition()
         refresh()
     }
 
@@ -189,6 +215,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         _currentPath.value = folderStack.last()
         _canNavigateUp.value = folderStack.size > 1
         cancelFolderSelection()
+        resetScrollPosition()
         refresh()
         return true
     }
@@ -260,7 +287,11 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
             isLoading.value = true
             errorMessage.value = null
             val path = _currentPath.value
-            when (val source = _selectedSource.value) {
+            val source = _selectedSource.value
+            // Salva a localização de navegação a cada recarga (inclusive a inicial) — é o que
+            // permite reabrir o app depois de fechado direto nessa fonte/pasta (ver MainActivity).
+            playbackResumeStore.saveBrowseLocation(source, path)
+            when (source) {
                 SourceRef.Local -> {
                     runCatching { localVideoRepository.browse(path) }
                         .onSuccess { result ->

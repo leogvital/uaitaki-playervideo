@@ -28,8 +28,8 @@ android {
         applicationId = "com.uaitaki.playervideo"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -95,6 +95,11 @@ dependencies {
     // "no such algorithm: X25519 for provider BC".
     implementation(libs.bouncycastle)
     implementation(libs.commons.net)
+    // Listagem de compartilhamentos SMB (NetrShareEnum/MS-SRVS) via smbj-rpc, em vez de montar/
+    // interpretar o PDU de DCE/RPC na mão — a lib foi publicada contra smbj 0.12.2, mas só usa a
+    // API estável de alto nível (Session/PipeShare), então funciona normalmente com o smbj 0.14.0
+    // deste projeto (Gradle resolve o conflito de versão transitiva para a mais nova).
+    implementation(libs.dcerpc)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

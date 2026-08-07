@@ -10,11 +10,13 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.example.neonplayer.R
 import com.example.neonplayer.favorites.FavoritesRepository
 import com.example.neonplayer.sources.PlayableVideo
+import com.example.neonplayer.sources.PlaybackResumeStore
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
 import com.example.neonplayer.sources.local.DeleteVideoResult
 import com.example.neonplayer.sources.local.LocalVideo
@@ -39,6 +41,9 @@ import kotlinx.coroutines.launch
 
 private const val SEEK_STEP_MS = 10_000L
 private const val POSITION_POLL_INTERVAL_MS = 500L
+
+/** Intervalo entre gravações da posição de retomada — não precisa ser a cada poll (500ms), só o bastante para não perder muito progresso se o app for encerrado de repente. */
+private const val RESUME_SAVE_INTERVAL_TICKS = (5_000L / POSITION_POLL_INTERVAL_MS).toInt()
 
 data class VideoPlayerUiState(
     val currentTitle: String = "",
@@ -68,6 +73,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val smbRepository = SmbVideoRepository(application)
     private val sftpRepository = SftpVideoRepository(application)
     private val ftpRepository = FtpVideoRepository(application)
+    private val playbackResumeStore = PlaybackResumeStore(application)
 
     val player: ExoPlayer = buildPlayer(application, remoteServerRepository, remoteCredentialStore)
 
@@ -81,14 +87,26 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var favoriteIds: Set<String> = emptySet()
     private var favoritesJob: Job? = null
 
+    /**
+     * Só é `true` quando a playlist veio da navegação principal por pastas (ver
+     * [VideoBrowserViewModel]) — é o único fluxo em que a posição de retomada salva sempre
+     * corresponde à mesma pasta salva por [VideoBrowserViewModel.refresh]. Favoritos/coleções
+     * misturam vídeos de fontes/pastas diferentes numa única playlist, então não têm uma "pasta"
+     * única para reabrir depois — tocar um vídeo por esses fluxos não grava/limpa retomada.
+     */
+    private var canPersistResume = false
+    private var resumeSaveTickCounter = 0
+
     init {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _uiState.value = _uiState.value.copy(isPlaying = isPlaying)
+                if (!isPlaying) persistResumeProgress()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateCurrentItemState()
+                persistResumeProgress()
             }
 
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -117,21 +135,40 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     currentPositionMs = player.currentPosition.coerceAtLeast(0),
                     durationMs = if (duration == C.TIME_UNSET) 0L else duration,
                 )
+                resumeSaveTickCounter++
+                if (resumeSaveTickCounter >= RESUME_SAVE_INTERVAL_TICKS) {
+                    resumeSaveTickCounter = 0
+                    persistResumeProgress()
+                }
             }
         }
     }
 
-    fun setPlaylist(videos: List<PlayableVideo>, startIndex: Int) {
+    /**
+     * @param startPositionMs posição inicial dentro do vídeo em [startIndex] — só usado ao
+     * restaurar a reprodução salva (ver [MainActivity]); navegação normal sempre começa do 0.
+     * @param autoPlay `false` só na restauração — reabre pausado no lugar salvo, não tocando
+     * sozinho (comportamento combinado com o usuário).
+     */
+    fun setPlaylist(
+        videos: List<PlayableVideo>,
+        startIndex: Int,
+        startPositionMs: Long = 0L,
+        autoPlay: Boolean = true,
+        canPersistResume: Boolean = false,
+    ) {
         playlist = videos
+        this.canPersistResume = canPersistResume
+        resumeSaveTickCounter = 0
         val mediaItems = videos.map { video ->
             MediaItem.Builder()
                 .setUri(video.playbackUri)
                 .setMediaId(video.videoId)
                 .build()
         }
-        player.setMediaItems(mediaItems, startIndex, 0)
+        player.setMediaItems(mediaItems, startIndex, startPositionMs)
         player.prepare()
-        player.playWhenReady = true
+        player.playWhenReady = autoPlay
         updateCurrentItemState()
 
         favoritesJob?.cancel()
@@ -261,6 +298,19 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private fun persistResumeProgress() {
+        if (!canPersistResume) return
+        val video = playlist.getOrNull(player.currentMediaItemIndex) ?: return
+        val position = player.currentPosition.coerceAtLeast(0)
+        viewModelScope.launch { playbackResumeStore.updatePlaybackProgress(video.sourceId, video.videoId, position) }
+    }
+
+    /** Chamado ao sair da tela do player (por qualquer motivo) — o vídeo deixou de estar "em reprodução", então não faz mais sentido reabrir o app direto nele. */
+    fun clearResumePlaybackIfApplicable() {
+        if (!canPersistResume) return
+        viewModelScope.launch { playbackResumeStore.clearPlayback() }
+    }
+
     private fun updateCurrentItemState() {
         val index = player.currentMediaItemIndex
         val video = playlist.getOrNull(index)
@@ -290,7 +340,20 @@ private fun buildPlayer(
 ): ExoPlayer {
     val dataSourceFactory = NeonDataSourceFactory(application, remoteServerRepository, remoteCredentialStore)
     val mediaSourceFactory = DefaultMediaSourceFactory(application).setDataSourceFactory(dataSourceFactory)
+    // Buffers bem maiores que o padrão do Media3 (pensado para mídia local rápida) — junto com o
+    // ReadAheadDataSource (ver NeonDataSource), é o que faz a reprodução remota via SMB/SFTP/FTP se
+    // comportar como streaming: acumula bastante mídia à frente e exige mais buffer reconstituído
+    // após um travamento antes de retomar, absorvendo picos de latência/instabilidade de rede.
+    val loadControl = DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            /* minBufferMs = */ 30_000,
+            /* maxBufferMs = */ 90_000,
+            /* bufferForPlaybackMs = */ 3_000,
+            /* bufferForPlaybackAfterRebufferMs = */ 6_000,
+        )
+        .build()
     return ExoPlayer.Builder(application)
         .setMediaSourceFactory(mediaSourceFactory)
+        .setLoadControl(loadControl)
         .build()
 }

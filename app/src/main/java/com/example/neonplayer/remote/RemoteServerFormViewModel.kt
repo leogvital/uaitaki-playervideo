@@ -52,8 +52,20 @@ class RemoteServerFormViewModel(application: Application) : AndroidViewModel(app
 
     private var loadedServerId: String? = null
 
+    /**
+     * Este ViewModel é efetivamente um singleton por Activity (reaproveitado pelo
+     * [androidx.lifecycle.viewmodel.compose.viewModel] sempre que a tela é reaberta, sem um
+     * ViewModelStore próprio) — sem este reset explícito, abrir "Adicionar servidor" depois de já
+     * ter criado/editado algum servidor reabria o formulário com os dados anteriores ainda
+     * preenchidos, como se fosse editar aquele servidor de novo.
+     */
     fun load(serverId: String?) {
-        if (serverId == null || serverId == loadedServerId) return
+        if (serverId == null) {
+            loadedServerId = null
+            _uiState.value = RemoteServerFormUiState()
+            return
+        }
+        if (serverId == loadedServerId) return
         loadedServerId = serverId
         viewModelScope.launch {
             val server = withContext(Dispatchers.IO) { serverRepository.getServer(serverId) } ?: return@launch
@@ -182,7 +194,8 @@ class RemoteServerFormViewModel(application: Application) : AndroidViewModel(app
                 serverRepository.saveServer(config)
                 credentialStore.savePassword(id, state.password)
             }
-            _uiState.value = _uiState.value.copy(isSaving = false)
+            loadedServerId = id
+            _uiState.value = _uiState.value.copy(id = id, isSaving = false)
             _saved.emit(Unit)
         }
     }

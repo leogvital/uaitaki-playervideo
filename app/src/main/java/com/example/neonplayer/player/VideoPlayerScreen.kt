@@ -93,6 +93,9 @@ fun VideoPlayerScreen(
     startIndex: Int,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    startPositionMs: Long = 0L,
+    autoPlay: Boolean = true,
+    canPersistResume: Boolean = false,
     viewModel: VideoPlayerViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -103,7 +106,15 @@ fun VideoPlayerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(videos, startIndex) {
-        viewModel.setPlaylist(videos, startIndex)
+        viewModel.setPlaylist(videos, startIndex, startPositionMs, autoPlay, canPersistResume)
+    }
+
+    // Ao sair da tela do player por qualquer caminho (seta de voltar, gesto do sistema, playlist
+    // esvaziada por exclusão), o vídeo deixa de estar "em reprodução" — se essa playlist é
+    // rastreada para retomada (ver VideoPlayerViewModel.canPersistResume), limpa só essa parte do
+    // estado salvo, preservando a pasta.
+    DisposableEffect(Unit) {
+        onDispose { viewModel.clearResumePlaybackIfApplicable() }
     }
 
     // Estado do controle de proporção/tela cheia.
@@ -396,7 +407,11 @@ fun VideoPlayerScreen(
                         )
                     }
                     IconButton(onClick = { keepControlsVisible(); viewModel.skipToPrevious() }, enabled = uiState.hasPrevious) {
-                        Icon(imageVector = Icons.Filled.SkipPrevious, contentDescription = stringResource(R.string.skip_previous), tint = Color.White)
+                        Icon(
+                            imageVector = Icons.Filled.SkipPrevious,
+                            contentDescription = stringResource(R.string.skip_previous),
+                            tint = Color.White.copy(alpha = if (uiState.hasPrevious) 1f else 0.3f),
+                        )
                     }
                     IconButton(onClick = { keepControlsVisible(); viewModel.togglePlayPause() }) {
                         Icon(
@@ -406,7 +421,11 @@ fun VideoPlayerScreen(
                         )
                     }
                     IconButton(onClick = { keepControlsVisible(); viewModel.skipToNext() }, enabled = uiState.hasNext) {
-                        Icon(imageVector = Icons.Filled.SkipNext, contentDescription = stringResource(R.string.skip_next), tint = Color.White)
+                        Icon(
+                            imageVector = Icons.Filled.SkipNext,
+                            contentDescription = stringResource(R.string.skip_next),
+                            tint = Color.White.copy(alpha = if (uiState.hasNext) 1f else 0.3f),
+                        )
                     }
                     IconButton(
                         onClick = {

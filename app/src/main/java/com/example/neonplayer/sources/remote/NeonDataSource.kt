@@ -35,10 +35,12 @@ class NeonDataSource(
     }
 
     override fun open(dataSpec: DataSpec): Long {
+        // Fontes remotas passam por ReadAheadDataSource — leitura local (content://) não precisa,
+        // já é rápida o bastante sem essa camada extra.
         val dataSource: DataSource = when (dataSpec.uri.remoteProtocolOrNull()) {
-            ServerProtocol.SMB -> SmbDataSource(serverRepository, credentialStore)
-            ServerProtocol.SFTP -> SftpDataSource(serverRepository, credentialStore)
-            ServerProtocol.FTP -> FtpDataSource(serverRepository, credentialStore)
+            ServerProtocol.SMB -> ReadAheadDataSource(SmbDataSource(serverRepository, credentialStore))
+            ServerProtocol.SFTP -> ReadAheadDataSource(SftpDataSource(serverRepository, credentialStore))
+            ServerProtocol.FTP -> ReadAheadDataSource(FtpDataSource(serverRepository, credentialStore))
             null -> DefaultDataSource.Factory(context).createDataSource()
         }
         listeners.forEach(dataSource::addTransferListener)
