@@ -52,8 +52,8 @@ class CollectionDetailViewModel(application: Application) : AndroidViewModel(app
 
     private var loadedCollection: FavoriteCollection? = null
 
+    /** Sempre recarrega — a tela é remontada toda vez que se volta a ela (ex: depois de excluir um vídeo no player), então não há por que reaproveitar um resultado antigo. */
     fun load(collection: FavoriteCollection) {
-        if (loadedCollection?.id == collection.id) return
         loadedCollection = collection
         fetch(collection)
     }

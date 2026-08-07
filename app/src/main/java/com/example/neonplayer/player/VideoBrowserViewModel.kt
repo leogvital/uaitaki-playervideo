@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.neonplayer.R
 import com.example.neonplayer.favorites.CollectionFolderRef
+import com.example.neonplayer.favorites.FavoriteCollection
 import com.example.neonplayer.favorites.FavoriteCollectionsRepository
 import com.example.neonplayer.favorites.FavoritesRepository
 import com.example.neonplayer.sources.BrowseFolder
@@ -26,6 +27,7 @@ import com.example.neonplayer.sources.sftp.SftpVideoRepository
 import com.example.neonplayer.sources.smb.SmbVideoRepository
 import com.example.neonplayer.sources.smb.splitShareAndPath
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -102,9 +104,15 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     private val _isFetchingPlayAll = MutableStateFlow(false)
     val isFetchingPlayAll: StateFlow<Boolean> = _isFetchingPlayAll.asStateFlow()
 
-    /** Pastas marcadas para virar uma coleção de favoritos — só existe dentro do nível atual (limpa ao navegar/trocar fonte). */
+    /** Ativado pelo botão "Selecionar pastas" da barra de ferramentas ou por toque-e-segure numa pasta. */
+    private val _selectionModeActive = MutableStateFlow(false)
+    val selectionModeActive: StateFlow<Boolean> = _selectionModeActive.asStateFlow()
+
+    /** Pastas marcadas para virar uma nova coleção (ou entrar numa já existente) — só existe dentro do nível atual (limpa ao navegar/trocar fonte). */
     private val _selectedFolders = MutableStateFlow<Set<String>>(emptySet())
     val selectedFolders: StateFlow<Set<String>> = _selectedFolders.asStateFlow()
+
+    val collections: Flow<List<FavoriteCollection>> = favoriteCollectionsRepository.collectionsFlow
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<VideoBrowserUiState> = combine(
@@ -132,7 +140,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     fun selectSource(source: SourceRef) {
         if (source == _selectedSource.value) return
         _selectedSource.value = source
-        _selectedFolders.value = emptySet()
+        cancelFolderSelection()
         viewModelScope.launch {
             val root = rootPathFor(source)
             folderStack.clear()
@@ -158,7 +166,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         folderStack.add(folder.path)
         _currentPath.value = folder.path
         _canNavigateUp.value = folderStack.size > 1
-        _selectedFolders.value = emptySet()
+        cancelFolderSelection()
         refresh()
     }
 
@@ -168,13 +176,19 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         folderStack.removeAt(folderStack.lastIndex)
         _currentPath.value = folderStack.last()
         _canNavigateUp.value = folderStack.size > 1
-        _selectedFolders.value = emptySet()
+        cancelFolderSelection()
         refresh()
         return true
     }
 
-    /** Alterna a seleção de uma pasta (modo de seleção fica implícito: ativo enquanto houver pelo menos uma pasta marcada). */
+    /** Liga o modo de seleção de pastas a partir do botão da barra de ferramentas, sem nenhuma pasta marcada ainda. */
+    fun enterFolderSelectionMode() {
+        _selectionModeActive.value = true
+    }
+
+    /** Alterna a seleção de uma pasta — também liga o modo de seleção, para o atalho de toque-e-segure funcionar sem passar pelo botão da barra de ferramentas. */
     fun toggleFolderSelection(folder: BrowseFolder) {
+        _selectionModeActive.value = true
         _selectedFolders.value = if (folder.path in _selectedFolders.value) {
             _selectedFolders.value - folder.path
         } else {
@@ -183,19 +197,34 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun cancelFolderSelection() {
+        _selectionModeActive.value = false
         _selectedFolders.value = emptySet()
+    }
+
+    private fun selectedFolderRefs(): List<CollectionFolderRef> {
+        val sourceId = _selectedSource.value.favoriteSourceId
+        return _selectedFolders.value.map { path ->
+            val label = path.trimEnd('/').substringAfterLast('/').ifEmpty { path }
+            CollectionFolderRef(sourceId = sourceId, path = path, label = label)
+        }
     }
 
     /** Cria uma nova coleção de favoritos a partir das pastas marcadas na fonte atual. */
     fun createCollectionFromSelection(name: String) {
-        val sourceId = _selectedSource.value.favoriteSourceId
-        val folders = _selectedFolders.value.map { path ->
-            val label = path.trimEnd('/').substringAfterLast('/').ifEmpty { path }
-            CollectionFolderRef(sourceId = sourceId, path = path, label = label)
-        }
+        val folders = selectedFolderRefs()
         if (folders.isEmpty()) return
         viewModelScope.launch {
             favoriteCollectionsRepository.createCollection(name, folders)
+            cancelFolderSelection()
+        }
+    }
+
+    /** Adiciona as pastas marcadas a uma coleção de favoritos já existente. */
+    fun addSelectionToCollection(collectionId: String) {
+        val folders = selectedFolderRefs()
+        if (folders.isEmpty()) return
+        viewModelScope.launch {
+            favoriteCollectionsRepository.addFoldersToCollection(collectionId, folders)
             cancelFolderSelection()
         }
     }

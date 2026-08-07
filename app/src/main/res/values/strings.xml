@@ -91,11 +91,13 @@
     <string name="play_all">Reproduzir tudo</string>
     <string name="play_all_empty">Nenhum vídeo encontrado nesta pasta.</string>
 
+    <string name="browse_select_folders">Selecionar pastas para favoritos</string>
     <string name="browse_selection_count">%1$d pasta(s) selecionada(s)</string>
     <string name="browse_cancel_selection">Cancelar seleção</string>
-    <string name="browse_create_collection">Criar favorito com as pastas selecionadas</string>
-    <string name="browse_long_press_hint">Toque e segure numa pasta para selecionar várias</string>
+    <string name="browse_create_collection">Adicionar pastas selecionadas aos favoritos</string>
 
+    <string name="collection_chooser_title">Adicionar aos favoritos</string>
+    <string name="collection_chooser_new">Criar nova coleção</string>
     <string name="collection_name_dialog_title">Nome da coleção</string>
     <string name="collection_name_hint">Ex: Filmes de viagem</string>
     <string name="collection_create">Criar</string>

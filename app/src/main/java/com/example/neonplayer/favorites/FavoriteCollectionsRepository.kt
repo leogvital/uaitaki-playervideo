@@ -30,6 +30,22 @@ class FavoriteCollectionsRepository(private val context: Context) {
         }
     }
 
+    /** Acrescenta pastas a uma coleção já existente, sem duplicar uma pasta já presente (mesma fonte + caminho). */
+    suspend fun addFoldersToCollection(id: String, newFolders: List<CollectionFolderRef>) {
+        context.favoriteCollectionsDataStore.edit { prefs ->
+            val current = prefs[COLLECTIONS_KEY]?.let(::decode) ?: emptyList()
+            val updated = current.map { collection ->
+                if (collection.id == id) {
+                    val merged = (collection.folders + newFolders).distinctBy { it.sourceId to it.path }
+                    collection.copy(folders = merged)
+                } else {
+                    collection
+                }
+            }
+            prefs[COLLECTIONS_KEY] = encode(updated)
+        }
+    }
+
     suspend fun deleteCollection(id: String) {
         context.favoriteCollectionsDataStore.edit { prefs ->
             val current = prefs[COLLECTIONS_KEY]?.let(::decode) ?: emptyList()

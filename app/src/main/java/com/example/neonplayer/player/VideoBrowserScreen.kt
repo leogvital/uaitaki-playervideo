@@ -31,11 +31,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -46,6 +49,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -76,6 +80,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.neonplayer.R
+import com.example.neonplayer.favorites.FavoriteCollection
 import com.example.neonplayer.sources.PlayableVideo
 import com.example.neonplayer.sources.SortDirection
 import com.example.neonplayer.sources.SortField
@@ -106,24 +111,29 @@ fun VideoBrowserScreen(
     val sourceOptions by viewModel.sourceOptions.collectAsState()
     val canNavigateUp by viewModel.canNavigateUp.collectAsState()
     val isFetchingPlayAll by viewModel.isFetchingPlayAll.collectAsState()
+    val selectionModeActive by viewModel.selectionModeActive.collectAsState()
     val selectedFolders by viewModel.selectedFolders.collectAsState()
+    val collections by viewModel.collections.collectAsState(initial = emptyList())
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<PlayableVideo?>(null) }
     var sourceMenuExpanded by remember { mutableStateOf(false) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
+    var showCollectionChooser by remember { mutableStateOf(false) }
     var showCollectionNameDialog by remember { mutableStateOf(false) }
     var viewMode by rememberSaveable { mutableStateOf(VideoViewMode.LIST) }
     // SortOption não é Parcelable/Serializable de forma trivial — sobrevive a recomposição, não a
     // recriação de processo (perda aceitável para uma preferência de ordenação).
     var sortOption by remember { mutableStateOf(SortOption(SortField.DATE, SortDirection.DESCENDING)) }
 
+    // Recarrega sempre que a tela volta a ficar visível (ex: voltando do player depois de excluir
+    // um vídeo) — sem isso, trocar de tela e voltar para a mesma fonte não atualizava a lista.
     LaunchedEffect(initialSource) {
-        initialSource?.let(viewModel::selectSource)
+        if (initialSource != null) viewModel.selectSource(initialSource) else viewModel.refresh()
     }
 
-    BackHandler(enabled = canNavigateUp || selectedFolders.isNotEmpty()) {
-        if (selectedFolders.isNotEmpty()) viewModel.cancelFolderSelection() else viewModel.navigateUp()
+    BackHandler(enabled = canNavigateUp || selectionModeActive) {
+        if (selectionModeActive) viewModel.cancelFolderSelection() else viewModel.navigateUp()
     }
 
     val deleteIntentLauncher = rememberLauncherForActivityResult(
@@ -183,7 +193,7 @@ fun VideoBrowserScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            if (selectedFolders.isNotEmpty()) {
+            if (selectionModeActive) {
                 TopAppBar(
                     navigationIcon = {
                         IconButton(onClick = { viewModel.cancelFolderSelection() }) {
@@ -192,7 +202,10 @@ fun VideoBrowserScreen(
                     },
                     title = { Text(stringResource(R.string.browse_selection_count, selectedFolders.size)) },
                     actions = {
-                        IconButton(onClick = { showCollectionNameDialog = true }) {
+                        IconButton(
+                            enabled = selectedFolders.isNotEmpty(),
+                            onClick = { showCollectionChooser = true },
+                        ) {
                             Icon(imageVector = Icons.Filled.Check, contentDescription = stringResource(R.string.browse_create_collection))
                         }
                     },
@@ -239,6 +252,14 @@ fun VideoBrowserScreen(
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
                                     contentDescription = stringResource(R.string.play_all),
+                                )
+                            }
+                        }
+                        if (uiState.folders.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.enterFolderSelectionMode() }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Checklist,
+                                    contentDescription = stringResource(R.string.browse_select_folders),
                                 )
                             }
                         }
@@ -328,9 +349,9 @@ fun VideoBrowserScreen(
                         FolderListRow(
                             folder = folder,
                             onClick = {
-                                if (selectedFolders.isNotEmpty()) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
+                                if (selectionModeActive) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
                             },
-                            selectionMode = selectedFolders.isNotEmpty(),
+                            selectionMode = selectionModeActive,
                             selected = folder.path in selectedFolders,
                             onLongClick = { viewModel.toggleFolderSelection(folder) },
                         )
@@ -359,9 +380,9 @@ fun VideoBrowserScreen(
                         FolderGridCard(
                             folder = folder,
                             onClick = {
-                                if (selectedFolders.isNotEmpty()) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
+                                if (selectionModeActive) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
                             },
-                            selectionMode = selectedFolders.isNotEmpty(),
+                            selectionMode = selectionModeActive,
                             selected = folder.path in selectedFolders,
                             onLongClick = { viewModel.toggleFolderSelection(folder) },
                         )
@@ -395,6 +416,42 @@ fun VideoBrowserScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showCollectionChooser) {
+        AlertDialog(
+            onDismissRequest = { showCollectionChooser = false },
+            title = { Text(stringResource(R.string.collection_chooser_title)) },
+            text = {
+                Column {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.collection_chooser_new)) },
+                        leadingContent = { Icon(imageVector = Icons.Filled.Add, contentDescription = null) },
+                        modifier = Modifier.clickable {
+                            showCollectionChooser = false
+                            showCollectionNameDialog = true
+                        },
+                    )
+                    collections.forEach { collection ->
+                        ListItem(
+                            headlineContent = { Text(collection.name, maxLines = 1) },
+                            supportingContent = { Text(stringResource(R.string.collection_folder_count, collection.folders.size)) },
+                            leadingContent = { Icon(imageVector = Icons.Filled.Folder, contentDescription = null) },
+                            modifier = Modifier.clickable {
+                                showCollectionChooser = false
+                                viewModel.addSelectionToCollection(collection.id)
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showCollectionChooser = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             },
