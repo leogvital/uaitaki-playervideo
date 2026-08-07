@@ -83,12 +83,37 @@ Requer Android Studio / JDK compatível com o AGP do projeto (ver `gradle/libs.v
 - [x] Repositório no GitHub (público)
 - [x] Ficha da loja: descrição, categoria, screenshots e [gráfico de destaque](store/feature_graphic.png) ([`store/`](store/))
 - [x] Política de privacidade publicada: **https://leogvital.github.io/uaitaki-playervideo/**
+- [x] Conta de desenvolvedor criada e aprovada no [Google Play Console](https://play.google.com/console/signup)
+- [x] Primeira versão enviada para **teste interno**
 
-**Pendente (depende de ação manual do mantenedor, fora do que dá pra automatizar):**
-- [ ] Criar a conta de desenvolvedor no [Google Play Console](https://play.google.com/console/signup) (taxa única de US$25 + verificação de identidade)
-- [ ] Submeter a primeira versão para revisão
+**Pendente:**
+- [ ] Testadores validarem a versão atual sem travamentos/bugs bloqueantes
+- [ ] Promover de teste interno para produção (lançamento público)
 
 O passo a passo detalhado de cada item (inclusive backup da chave de assinatura, que é crítico) está em [`CLAUDE.md`](CLAUDE.md#publicação-na-google-play-store).
+
+## Roadmap
+
+**Em andamento**
+- [ ] Fase de teste interno na Play Store — corrigir bugs relatados pelos testadores antes do lançamento público
+
+**Backlog do player** (inspirado no menu de opções do VLC para Android, deliberadamente adiado para focar em estabilidade primeiro)
+- [ ] Velocidade de reprodução
+- [ ] Travar tela (bloquear toques durante a reprodução)
+- [ ] Repetição de trecho A-B
+- [ ] Modo contínuo (reproduzir sempre a próxima pasta ao terminar a atual)
+- [ ] Equalizador
+
+**Robustez de rede**
+- [ ] Aviso/nova tentativa automática quando a conexão remota cai no meio da reprodução
+- [ ] Gerenciamento de host key (known_hosts) para SFTP — hoje o app aceita a chave de qualquer servidor sem verificação, uma troca deliberada de usabilidade por proteção contra man-in-the-middle
+- [ ] Duração exibida para vídeos remotos (hoje não é obtida sem baixar o arquivo)
+
+**Build/infra**
+- [ ] Habilitar R8/ProGuard no build de release (reduz tamanho do app) — adiado até testar cuidadosamente contra os três protocolos remotos, que dependem bastante de reflexão
+
+**Depois do lançamento público**
+- [ ] Botão de doação (link externo — Pix/PayPal — combinado para só entrar depois do app aprovado e estável em produção; ver `CLAUDE.md`)
 
 ### Gerando um build de release local
 
