@@ -5,9 +5,12 @@ import android.content.IntentSender
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.neonplayer.R
+import com.example.neonplayer.favorites.CollectionFolderRef
+import com.example.neonplayer.favorites.FavoriteCollectionsRepository
 import com.example.neonplayer.favorites.FavoritesRepository
 import com.example.neonplayer.sources.BrowseFolder
 import com.example.neonplayer.sources.PlayableVideo
+import com.example.neonplayer.sources.RecursiveVideoFetcher
 import com.example.neonplayer.sources.SourceRef
 import com.example.neonplayer.sources.favoriteSourceId
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
@@ -48,6 +51,8 @@ data class VideoBrowserUiState(
 sealed interface VideoBrowserEvent {
     data class RequestSystemDeleteConfirmation(val intentSender: IntentSender) : VideoBrowserEvent
     data class DeleteFailed(val message: String) : VideoBrowserEvent
+    data class StartPlayback(val videos: List<PlayableVideo>) : VideoBrowserEvent
+    data object PlayAllEmpty : VideoBrowserEvent
 }
 
 class VideoBrowserViewModel(application: Application) : AndroidViewModel(application) {
@@ -58,6 +63,10 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     private val sftpRepository = SftpVideoRepository(application)
     private val ftpRepository = FtpVideoRepository(application)
     private val favoritesRepository = FavoritesRepository(application)
+    private val favoriteCollectionsRepository = FavoriteCollectionsRepository(application)
+    private val recursiveVideoFetcher = RecursiveVideoFetcher(
+        localVideoRepository, remoteServerRepository, smbRepository, sftpRepository, ftpRepository,
+    )
 
     private val _selectedSource = MutableStateFlow<SourceRef>(SourceRef.Local)
     val selectedSource: StateFlow<SourceRef> = _selectedSource.asStateFlow()
@@ -90,6 +99,13 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     private val _events = MutableSharedFlow<VideoBrowserEvent>()
     val events: SharedFlow<VideoBrowserEvent> = _events.asSharedFlow()
 
+    private val _isFetchingPlayAll = MutableStateFlow(false)
+    val isFetchingPlayAll: StateFlow<Boolean> = _isFetchingPlayAll.asStateFlow()
+
+    /** Pastas marcadas para virar uma coleção de favoritos — só existe dentro do nível atual (limpa ao navegar/trocar fonte). */
+    private val _selectedFolders = MutableStateFlow<Set<String>>(emptySet())
+    val selectedFolders: StateFlow<Set<String>> = _selectedFolders.asStateFlow()
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<VideoBrowserUiState> = combine(
         rawFolders,
@@ -116,6 +132,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     fun selectSource(source: SourceRef) {
         if (source == _selectedSource.value) return
         _selectedSource.value = source
+        _selectedFolders.value = emptySet()
         viewModelScope.launch {
             val root = rootPathFor(source)
             folderStack.clear()
@@ -141,6 +158,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         folderStack.add(folder.path)
         _currentPath.value = folder.path
         _canNavigateUp.value = folderStack.size > 1
+        _selectedFolders.value = emptySet()
         refresh()
     }
 
@@ -150,8 +168,50 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         folderStack.removeAt(folderStack.lastIndex)
         _currentPath.value = folderStack.last()
         _canNavigateUp.value = folderStack.size > 1
+        _selectedFolders.value = emptySet()
         refresh()
         return true
+    }
+
+    /** Alterna a seleção de uma pasta (modo de seleção fica implícito: ativo enquanto houver pelo menos uma pasta marcada). */
+    fun toggleFolderSelection(folder: BrowseFolder) {
+        _selectedFolders.value = if (folder.path in _selectedFolders.value) {
+            _selectedFolders.value - folder.path
+        } else {
+            _selectedFolders.value + folder.path
+        }
+    }
+
+    fun cancelFolderSelection() {
+        _selectedFolders.value = emptySet()
+    }
+
+    /** Cria uma nova coleção de favoritos a partir das pastas marcadas na fonte atual. */
+    fun createCollectionFromSelection(name: String) {
+        val sourceId = _selectedSource.value.favoriteSourceId
+        val folders = _selectedFolders.value.map { path ->
+            val label = path.trimEnd('/').substringAfterLast('/').ifEmpty { path }
+            CollectionFolderRef(sourceId = sourceId, path = path, label = label)
+        }
+        if (folders.isEmpty()) return
+        viewModelScope.launch {
+            favoriteCollectionsRepository.createCollection(name, folders)
+            cancelFolderSelection()
+        }
+    }
+
+    /** Junta (recursivamente) todos os vídeos da pasta atual e inicia a reprodução como uma única lista. */
+    fun playAllInCurrentFolder() {
+        viewModelScope.launch {
+            _isFetchingPlayAll.value = true
+            val videos = recursiveVideoFetcher.fetchAll(_selectedSource.value, _currentPath.value)
+            _isFetchingPlayAll.value = false
+            if (videos.isEmpty()) {
+                _events.emit(VideoBrowserEvent.PlayAllEmpty)
+            } else {
+                _events.emit(VideoBrowserEvent.StartPlayback(videos))
+            }
+        }
     }
 
     fun refresh() {

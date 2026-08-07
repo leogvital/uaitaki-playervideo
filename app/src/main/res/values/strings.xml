@@ -87,4 +87,23 @@
     <string name="orientation_lock_auto">Rotação automática</string>
     <string name="orientation_lock_portrait">Travado em retrato</string>
     <string name="orientation_lock_landscape">Travado em paisagem</string>
+
+    <string name="play_all">Reproduzir tudo</string>
+    <string name="play_all_empty">Nenhum vídeo encontrado nesta pasta.</string>
+
+    <string name="browse_selection_count">%1$d pasta(s) selecionada(s)</string>
+    <string name="browse_cancel_selection">Cancelar seleção</string>
+    <string name="browse_create_collection">Criar favorito com as pastas selecionadas</string>
+    <string name="browse_long_press_hint">Toque e segure numa pasta para selecionar várias</string>
+
+    <string name="collection_name_dialog_title">Nome da coleção</string>
+    <string name="collection_name_hint">Ex: Filmes de viagem</string>
+    <string name="collection_create">Criar</string>
+
+    <string name="favorites_collections_section">Coleções</string>
+    <string name="collection_folder_count">%1$d pasta(s)</string>
+    <string name="collection_delete">Excluir coleção</string>
+    <string name="collection_delete_title">Excluir coleção</string>
+    <string name="collection_delete_message">Tem certeza que deseja excluir a coleção \"%1$s\"? Os vídeos não serão apagados, só a coleção.</string>
+    <string name="collection_empty">Nenhum vídeo encontrado nas pastas desta coleção.</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.example.neonplayer.favorites
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,27 +17,34 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.neonplayer.R
@@ -50,20 +58,19 @@ import com.example.neonplayer.sources.SortOption
 import com.example.neonplayer.sources.VideoViewMode
 import com.example.neonplayer.sources.sortedByOption
 
-/**
- * Favoritos agregados de todas as fontes, divididos em seções por origem (igual à navegação de
- * vídeos ter suas seções em "Procurar") — não usa [com.example.neonplayer.player.FolderListRow]
- * pois favoritos nunca representam pastas, só vídeos já achatados.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FavoritesScreen(
     onVideoClick: (List<PlayableVideo>, Int) -> Unit,
+    onCollectionClick: (FavoriteCollection) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: FavoritesViewModel = viewModel(),
+    collectionsViewModel: CollectionsViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val collections by collectionsViewModel.collections.collectAsState(initial = emptyList())
     var viewMode by rememberSaveable { mutableStateOf(VideoViewMode.LIST) }
+    var pendingDeleteCollection by remember { mutableStateOf<FavoriteCollection?>(null) }
     val sortOption = SortOption(SortField.DATE, SortDirection.DESCENDING)
 
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -97,7 +104,7 @@ fun FavoritesScreen(
             when {
                 uiState.isLoading -> CircularProgressIndicator()
 
-                sortedVideos.isEmpty() -> Text(stringResource(R.string.favorites_empty))
+                sortedVideos.isEmpty() && collections.isEmpty() -> Text(stringResource(R.string.favorites_empty))
 
                 else -> Column(modifier = Modifier.fillMaxSize()) {
                     if (uiState.partialErrorMessage != null) {
@@ -114,6 +121,17 @@ fun FavoritesScreen(
 
                     if (viewMode == VideoViewMode.LIST) {
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            if (collections.isNotEmpty()) {
+                                item(key = "header:collections") { SectionHeader(stringResource(R.string.favorites_collections_section)) }
+                                itemsIndexed(collections, key = { _, collection -> "collection:" + collection.id }) { _, collection ->
+                                    CollectionRow(
+                                        collection = collection,
+                                        onClick = { onCollectionClick(collection) },
+                                        onDeleteClick = { pendingDeleteCollection = collection },
+                                    )
+                                    HorizontalDivider()
+                                }
+                            }
                             groups.forEach { (label, videos) ->
                                 item(key = "header:$label") { SectionHeader(label) }
                                 itemsIndexed(videos, key = { _, video -> video.sourceId + video.videoId }) { _, video ->
@@ -134,6 +152,20 @@ fun FavoritesScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(8.dp),
                         ) {
+                            if (collections.isNotEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "header:collections") {
+                                    SectionHeader(stringResource(R.string.favorites_collections_section))
+                                }
+                                collections.forEach { collection ->
+                                    item(span = { GridItemSpan(maxLineSpan) }, key = "collection:" + collection.id) {
+                                        CollectionRow(
+                                            collection = collection,
+                                            onClick = { onCollectionClick(collection) },
+                                            onDeleteClick = { pendingDeleteCollection = collection },
+                                        )
+                                    }
+                                }
+                            }
                             groups.forEach { (label, videos) ->
                                 item(span = { GridItemSpan(maxLineSpan) }, key = "header:$label") {
                                     SectionHeader(label)
@@ -155,6 +187,47 @@ fun FavoritesScreen(
             }
         }
     }
+
+    pendingDeleteCollection?.let { collection ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteCollection = null },
+            title = { Text(stringResource(R.string.collection_delete_title)) },
+            text = { Text(stringResource(R.string.collection_delete_message, collection.name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    collectionsViewModel.deleteCollection(collection.id)
+                    pendingDeleteCollection = null
+                }) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteCollection = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CollectionRow(
+    collection: FavoriteCollection,
+    onClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ListItem(
+        headlineContent = { Text(collection.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = { Text(stringResource(R.string.collection_folder_count, collection.folders.size)) },
+        leadingContent = { Icon(imageVector = Icons.Filled.Folder, contentDescription = null) },
+        trailingContent = {
+            IconButton(onClick = onDeleteClick) {
+                Icon(imageVector = Icons.Filled.Delete, contentDescription = stringResource(R.string.collection_delete))
+            }
+        },
+        modifier = modifier.clickable(onClick = onClick),
+    )
 }
 
 @Composable

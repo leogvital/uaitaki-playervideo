@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -27,11 +28,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -42,6 +46,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -100,11 +105,14 @@ fun VideoBrowserScreen(
     val selectedSource by viewModel.selectedSource.collectAsState()
     val sourceOptions by viewModel.sourceOptions.collectAsState()
     val canNavigateUp by viewModel.canNavigateUp.collectAsState()
+    val isFetchingPlayAll by viewModel.isFetchingPlayAll.collectAsState()
+    val selectedFolders by viewModel.selectedFolders.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<PlayableVideo?>(null) }
     var sourceMenuExpanded by remember { mutableStateOf(false) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
+    var showCollectionNameDialog by remember { mutableStateOf(false) }
     var viewMode by rememberSaveable { mutableStateOf(VideoViewMode.LIST) }
     // SortOption não é Parcelable/Serializable de forma trivial — sobrevive a recomposição, não a
     // recriação de processo (perda aceitável para uma preferência de ordenação).
@@ -114,8 +122,8 @@ fun VideoBrowserScreen(
         initialSource?.let(viewModel::selectSource)
     }
 
-    BackHandler(enabled = canNavigateUp) {
-        viewModel.navigateUp()
+    BackHandler(enabled = canNavigateUp || selectedFolders.isNotEmpty()) {
+        if (selectedFolders.isNotEmpty()) viewModel.cancelFolderSelection() else viewModel.navigateUp()
     }
 
     val deleteIntentLauncher = rememberLauncherForActivityResult(
@@ -132,6 +140,11 @@ fun VideoBrowserScreen(
 
                 is VideoBrowserEvent.DeleteFailed ->
                     coroutineScope.launch { snackbarHostState.showSnackbar(event.message) }
+
+                is VideoBrowserEvent.StartPlayback -> onVideoClick(event.videos.sortedByOption(sortOption), 0)
+
+                VideoBrowserEvent.PlayAllEmpty ->
+                    coroutineScope.launch { snackbarHostState.showSnackbar(context.getString(R.string.play_all_empty)) }
             }
         }
     }
@@ -170,89 +183,115 @@ fun VideoBrowserScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    if (canNavigateUp) {
-                        IconButton(onClick = { viewModel.navigateUp() }) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = stringResource(R.string.navigate_up),
-                            )
+            if (selectedFolders.isNotEmpty()) {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.cancelFolderSelection() }) {
+                            Icon(imageVector = Icons.Filled.Close, contentDescription = stringResource(R.string.browse_cancel_selection))
                         }
-                    }
-                },
-                title = {
-                    Box {
-                        Row(
-                            modifier = Modifier.clickable { sourceMenuExpanded = true },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(selectedLabel, maxLines = 1)
-                            Icon(imageVector = Icons.Filled.ArrowDropDown, contentDescription = null)
+                    },
+                    title = { Text(stringResource(R.string.browse_selection_count, selectedFolders.size)) },
+                    actions = {
+                        IconButton(onClick = { showCollectionNameDialog = true }) {
+                            Icon(imageVector = Icons.Filled.Check, contentDescription = stringResource(R.string.browse_create_collection))
                         }
-                        DropdownMenu(expanded = sourceMenuExpanded, onDismissRequest = { sourceMenuExpanded = false }) {
-                            sourceOptions.forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option.label) },
-                                    onClick = {
-                                        sourceMenuExpanded = false
-                                        viewModel.selectSource(option.ref)
-                                    },
+                    },
+                )
+            } else {
+                TopAppBar(
+                    navigationIcon = {
+                        if (canNavigateUp) {
+                            IconButton(onClick = { viewModel.navigateUp() }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.navigate_up),
                                 )
                             }
                         }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewMode = if (viewMode == VideoViewMode.LIST) VideoViewMode.GRID else VideoViewMode.LIST }) {
-                        Icon(
-                            imageVector = if (viewMode == VideoViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
-                            contentDescription = stringResource(R.string.toggle_view_mode),
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { sortMenuExpanded = true }) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Sort,
-                                contentDescription = stringResource(R.string.sort_videos),
-                            )
+                    },
+                    title = {
+                        Box {
+                            Row(
+                                modifier = Modifier.clickable { sourceMenuExpanded = true },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(selectedLabel, maxLines = 1)
+                                Icon(imageVector = Icons.Filled.ArrowDropDown, contentDescription = null)
+                            }
+                            DropdownMenu(expanded = sourceMenuExpanded, onDismissRequest = { sourceMenuExpanded = false }) {
+                                sourceOptions.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option.label) },
+                                        onClick = {
+                                            sourceMenuExpanded = false
+                                            viewModel.selectSource(option.ref)
+                                        },
+                                    )
+                                }
+                            }
                         }
-                        DropdownMenu(expanded = sortMenuExpanded, onDismissRequest = { sortMenuExpanded = false }) {
-                            SortField.entries.forEach { field ->
-                                DropdownMenuItem(
-                                    text = { Text(sortFieldLabel(field)) },
-                                    trailingIcon = {
-                                        if (sortOption.field == field) {
-                                            Icon(
-                                                imageVector = if (sortOption.direction == SortDirection.ASCENDING) {
-                                                    Icons.Filled.ArrowUpward
-                                                } else {
-                                                    Icons.Filled.ArrowDownward
-                                                },
-                                                contentDescription = null,
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        sortOption = if (sortOption.field == field) {
-                                            sortOption.copy(
-                                                direction = if (sortOption.direction == SortDirection.ASCENDING) {
-                                                    SortDirection.DESCENDING
-                                                } else {
-                                                    SortDirection.ASCENDING
-                                                },
-                                            )
-                                        } else {
-                                            SortOption(field, SortDirection.ASCENDING)
-                                        }
-                                        sortMenuExpanded = false
-                                    },
+                    },
+                    actions = {
+                        if (isFetchingPlayAll) {
+                            CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(24.dp))
+                        } else {
+                            IconButton(onClick = { viewModel.playAllInCurrentFolder() }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                    contentDescription = stringResource(R.string.play_all),
                                 )
                             }
                         }
-                    }
-                },
-            )
+                        IconButton(onClick = { viewMode = if (viewMode == VideoViewMode.LIST) VideoViewMode.GRID else VideoViewMode.LIST }) {
+                            Icon(
+                                imageVector = if (viewMode == VideoViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
+                                contentDescription = stringResource(R.string.toggle_view_mode),
+                            )
+                        }
+                        Box {
+                            IconButton(onClick = { sortMenuExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Sort,
+                                    contentDescription = stringResource(R.string.sort_videos),
+                                )
+                            }
+                            DropdownMenu(expanded = sortMenuExpanded, onDismissRequest = { sortMenuExpanded = false }) {
+                                SortField.entries.forEach { field ->
+                                    DropdownMenuItem(
+                                        text = { Text(sortFieldLabel(field)) },
+                                        trailingIcon = {
+                                            if (sortOption.field == field) {
+                                                Icon(
+                                                    imageVector = if (sortOption.direction == SortDirection.ASCENDING) {
+                                                        Icons.Filled.ArrowUpward
+                                                    } else {
+                                                        Icons.Filled.ArrowDownward
+                                                    },
+                                                    contentDescription = null,
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            sortOption = if (sortOption.field == field) {
+                                                sortOption.copy(
+                                                    direction = if (sortOption.direction == SortDirection.ASCENDING) {
+                                                        SortDirection.DESCENDING
+                                                    } else {
+                                                        SortDirection.ASCENDING
+                                                    },
+                                                )
+                                            } else {
+                                                SortOption(field, SortDirection.ASCENDING)
+                                            }
+                                            sortMenuExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    },
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
@@ -286,7 +325,15 @@ fun VideoBrowserScreen(
 
                 viewMode == VideoViewMode.LIST -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(folders, key = { "folder:" + it.path }) { folder ->
-                        FolderListRow(folder = folder, onClick = { viewModel.navigateInto(folder) })
+                        FolderListRow(
+                            folder = folder,
+                            onClick = {
+                                if (selectedFolders.isNotEmpty()) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
+                            },
+                            selectionMode = selectedFolders.isNotEmpty(),
+                            selected = folder.path in selectedFolders,
+                            onLongClick = { viewModel.toggleFolderSelection(folder) },
+                        )
                         HorizontalDivider()
                     }
                     itemsIndexed(sortedVideos, key = { _, video -> video.sourceId + video.videoId }) { index, video ->
@@ -309,7 +356,15 @@ fun VideoBrowserScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     gridItems(folders, key = { "folder:" + it.path }) { folder ->
-                        FolderGridCard(folder = folder, onClick = { viewModel.navigateInto(folder) })
+                        FolderGridCard(
+                            folder = folder,
+                            onClick = {
+                                if (selectedFolders.isNotEmpty()) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
+                            },
+                            selectionMode = selectedFolders.isNotEmpty(),
+                            selected = folder.path in selectedFolders,
+                            onLongClick = { viewModel.toggleFolderSelection(folder) },
+                        )
                     }
                     gridItemsIndexed(sortedVideos, key = { _, video -> video.sourceId + video.videoId }) { index, video ->
                         VideoGridCard(
@@ -340,6 +395,38 @@ fun VideoBrowserScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showCollectionNameDialog) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCollectionNameDialog = false },
+            title = { Text(stringResource(R.string.collection_name_dialog_title)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text(stringResource(R.string.collection_name_hint)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = name.isNotBlank(),
+                    onClick = {
+                        viewModel.createCollectionFromSelection(name.trim())
+                        showCollectionNameDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.collection_create))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCollectionNameDialog = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             },

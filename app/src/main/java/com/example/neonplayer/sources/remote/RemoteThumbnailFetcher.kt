@@ -23,7 +23,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 private const val THUMBNAIL_TIMEOUT_MS = 15_000L
-private const val THUMBNAIL_FRAME_TIME_US = 1_000_000L
+// 5s em vez do início do vídeo — muitos vídeos abrem com um frame preto (fade-in/logo). OPTION_CLOSEST
+// (não OPTION_CLOSEST_SYNC) decodifica o frame exato mais próximo em vez do keyframe anterior, que em
+// vídeos com keyframes espaçados (>5s) podia cair de volta no frame 0 e reproduzir o mesmo problema.
+private const val THUMBNAIL_FRAME_TIME_US = 5_000_000L
 
 /**
  * Limite de download para gerar miniatura via FTP, que ao contrário de SMB/SFTP não suporta
@@ -66,7 +69,7 @@ private fun extractFrame(dataSource: MediaDataSource): Bitmap? {
     val retriever = MediaMetadataRetriever()
     return try {
         retriever.setDataSource(dataSource)
-        retriever.getFrameAtTime(THUMBNAIL_FRAME_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        retriever.getFrameAtTime(THUMBNAIL_FRAME_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST)
     } catch (e: Exception) {
         null
     } finally {
@@ -78,7 +81,7 @@ private fun extractFrame(path: String): Bitmap? {
     val retriever = MediaMetadataRetriever()
     return try {
         retriever.setDataSource(path)
-        retriever.getFrameAtTime(THUMBNAIL_FRAME_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        retriever.getFrameAtTime(THUMBNAIL_FRAME_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST)
     } catch (e: Exception) {
         null
     } finally {

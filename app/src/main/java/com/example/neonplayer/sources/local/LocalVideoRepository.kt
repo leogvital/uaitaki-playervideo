@@ -53,6 +53,12 @@ class LocalVideoRepository(private val context: Context) {
         LocalBrowseResult(folders, videos)
     }
 
+    /** Todos os vídeos dentro de [folderPath] e qualquer subpasta, recursivamente — uma única consulta ao MediaStore (não uma por nível). */
+    suspend fun browseRecursive(folderPath: String): List<LocalVideo> = withContext(Dispatchers.IO) {
+        val normalized = normalizeFolderPath(folderPath)
+        queryAll().filter { (_, relativePath) -> relativePath.startsWith(normalized) }.map { it.first }
+    }
+
     private fun normalizeFolderPath(folderPath: String): String =
         if (folderPath.isBlank()) "" else folderPath.trim('/') + "/"
 

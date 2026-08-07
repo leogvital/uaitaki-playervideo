@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import com.example.neonplayer.browse.SourceBrowserScreen
+import com.example.neonplayer.favorites.CollectionDetailScreen
+import com.example.neonplayer.favorites.FavoriteCollection
 import com.example.neonplayer.favorites.FavoritesScreen
 import com.example.neonplayer.player.VideoBrowserScreen
 import com.example.neonplayer.player.VideoPlayerScreen
@@ -39,6 +41,7 @@ private sealed interface Screen {
     data object SourceBrowser : Screen
     data class Player(val videos: List<PlayableVideo>, val startIndex: Int) : Screen
     data class RemoteServerForm(val serverId: String?) : Screen
+    data class CollectionDetail(val collection: FavoriteCollection) : Screen
 }
 
 private fun isTopLevel(screen: Screen): Boolean =
@@ -91,6 +94,14 @@ private fun NeonPlayerApp(modifier: Modifier = Modifier) {
 
             is Screen.Favorites -> FavoritesScreen(
                 modifier = contentModifier,
+                onVideoClick = { videos, index -> backStack.add(Screen.Player(videos, index)) },
+                onCollectionClick = { collection -> backStack.add(Screen.CollectionDetail(collection)) },
+            )
+
+            is Screen.CollectionDetail -> CollectionDetailScreen(
+                modifier = contentModifier,
+                collection = current.collection,
+                onBack = { backStack.removeAt(backStack.lastIndex) },
                 onVideoClick = { videos, index -> backStack.add(Screen.Player(videos, index)) },
             )
 

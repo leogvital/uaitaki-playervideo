@@ -1,6 +1,8 @@
 package com.example.neonplayer.player
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -47,25 +50,49 @@ import kotlin.math.pow
  * de seção entre os itens, o que não dá pra fazer dentro de um componente genérico só com uma
  * lista plana).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun FolderListRow(folder: BrowseFolder, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun FolderListRow(
+    folder: BrowseFolder,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: () -> Unit = {},
+) {
     ListItem(
         headlineContent = { Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingContent = {
-            Icon(imageVector = Icons.Filled.Folder, contentDescription = stringResource(R.string.open_folder))
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onClick() })
+            } else {
+                Icon(imageVector = Icons.Filled.Folder, contentDescription = stringResource(R.string.open_folder))
+            }
         },
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun FolderGridCard(folder: BrowseFolder, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Card(modifier = modifier.fillMaxWidth().clickable(onClick = onClick)) {
+fun FolderGridCard(
+    folder: BrowseFolder,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: () -> Unit = {},
+) {
+    Card(modifier = modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(imageVector = Icons.Filled.Folder, contentDescription = stringResource(R.string.open_folder))
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onClick() })
+            } else {
+                Icon(imageVector = Icons.Filled.Folder, contentDescription = stringResource(R.string.open_folder))
+            }
             Text(
                 text = folder.name,
                 maxLines = 1,
