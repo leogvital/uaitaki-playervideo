@@ -23,6 +23,7 @@ import com.example.neonplayer.sources.ftp.FtpVideoRepository
 import com.example.neonplayer.sources.local.DeleteVideoResult
 import com.example.neonplayer.sources.local.LocalVideo
 import com.example.neonplayer.sources.local.LocalVideoRepository
+import com.example.neonplayer.sources.remote.RemoteCredentialStore
 import com.example.neonplayer.sources.remote.RemoteDeleteResult
 import com.example.neonplayer.sources.remote.RemoteListResult
 import com.example.neonplayer.sources.remote.RemoteServerRepository
@@ -32,6 +33,9 @@ import com.example.neonplayer.sources.sftp.SftpVideoRepository
 import com.example.neonplayer.sources.smb.SmbVideoRepository
 import com.example.neonplayer.sources.smb.splitShareAndPath
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +49,11 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+
+/** Miniaturas geradas ao mesmo tempo pelo pré-carregamento em segundo plano de uma pasta (ver [VideoBrowserViewModel.prefetchThumbnails]). */
+private const val THUMBNAIL_PREFETCH_CONCURRENCY = 3
 
 data class SourceOption(val ref: SourceRef, val label: String)
 
@@ -73,6 +82,10 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     private val favoriteCollectionsRepository = FavoriteCollectionsRepository(application)
     private val sortPreferences = SortPreferences(application)
     private val playbackResumeStore = PlaybackResumeStore(application)
+    private val remoteCredentialStore = RemoteCredentialStore(application)
+
+    /** Pré-carregamento de miniaturas da pasta atual — cancelado a cada nova navegação, ver [prefetchThumbnails]. */
+    private var thumbnailPrefetchJob: Job? = null
 
     val sortOption: StateFlow<SortOption> = sortPreferences.sortOptionFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SortOption(SortField.DATE, SortDirection.DESCENDING))
@@ -298,6 +311,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
                             rawFolders.value = result.folders
                             rawVideos.value = result.videos
                             isLoading.value = false
+                            prefetchThumbnails(result.videos)
                         }
                         .onFailure {
                             isLoading.value = false
@@ -322,6 +336,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
                             rawFolders.value = result.folders
                             rawVideos.value = result.videos
                             isLoading.value = false
+                            prefetchThumbnails(result.videos)
                         }
 
                         is RemoteListResult.Error -> {
@@ -331,6 +346,29 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Gera (e cacheia em disco) a miniatura de todo vídeo da pasta que acabou de carregar, não só
+     * os visíveis na tela — é o que faz reabrir uma pasta já visitada (ou rolar por ela) parecer
+     * instantâneo, ao custo de gerar isso uma vez em segundo plano quando a pasta é aberta.
+     * Cancelado ao navegar para outra pasta/fonte (não faz sentido continuar gerando miniatura de
+     * uma pasta que o usuário já não está olhando). Reaproveita [loadOrGenerateThumbnail] — a mesma
+     * função usada pela miniatura visível na tela — que já evita gerar a mesma miniatura duas vezes
+     * caso as duas peçam ao mesmo tempo.
+     */
+    private fun prefetchThumbnails(videos: List<PlayableVideo>) {
+        thumbnailPrefetchJob?.cancel()
+        thumbnailPrefetchJob = viewModelScope.launch {
+            val semaphore = Semaphore(THUMBNAIL_PREFETCH_CONCURRENCY)
+            videos.map { video ->
+                async {
+                    semaphore.withPermit {
+                        loadOrGenerateThumbnail(getApplication(), video, remoteServerRepository, remoteCredentialStore)
+                    }
+                }
+            }.awaitAll()
         }
     }
 

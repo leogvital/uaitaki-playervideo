@@ -1,7 +1,6 @@
 package com.example.neonplayer.player
 
 import android.graphics.Bitmap
-import android.util.Size
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -22,18 +21,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.example.neonplayer.sources.PlayableVideo
-import com.example.neonplayer.sources.SOURCE_LOCAL
 import com.example.neonplayer.sources.remote.RemoteCredentialStore
 import com.example.neonplayer.sources.remote.RemoteServerRepository
-import com.example.neonplayer.sources.remote.RemoteVideo
 import com.example.neonplayer.sources.remote.fetchRemoteThumbnail
 import com.example.neonplayer.sources.thumbnailCacheKey
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-
-private const val THUMBNAIL_WIDTH = 320
-private const val THUMBNAIL_HEIGHT = 180
 
 /**
  * Espera antes de *gerar* uma miniatura nova (só no cache miss — uma já em cache aparece na hora,
@@ -56,7 +48,6 @@ private const val THUMBNAIL_GENERATION_DEBOUNCE_MS = 3_000L
  */
 @Composable
 fun VideoThumbnail(video: PlayableVideo, modifier: Modifier = Modifier) {
-    val isLocal = video.sourceId == SOURCE_LOCAL
     val cacheKey = video.thumbnailCacheKey
     val context = LocalContext.current
     val remoteServerRepository = remember { RemoteServerRepository(context) }
@@ -72,31 +63,11 @@ fun VideoThumbnail(video: PlayableVideo, modifier: Modifier = Modifier) {
 
         delay(THUMBNAIL_GENERATION_DEBOUNCE_MS)
 
-        val generated = if (isLocal) {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.loadThumbnail(
-                        video.playbackUri,
-                        Size(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT),
-                        null,
-                    )
-                }.getOrNull()
-            }
-        } else {
-            val remoteVideo = video as? RemoteVideo
-            val config = remoteVideo?.let { remoteServerRepository.getServer(it.serverId) }
-            if (remoteVideo != null && config != null) {
-                val password = remoteCredentialStore.getPassword(remoteVideo.serverId).orEmpty()
-                fetchRemoteThumbnail(context, config, password, remoteVideo)
-            } else {
-                null
-            }
-        }
-
-        if (generated != null) {
-            ThumbnailStore.store(context, cacheKey, generated)
-            bitmap = generated
-        }
+        // Reconsulta via loadOrGenerateThumbnail (não só ThumbnailStore) — durante os 3s de espera
+        // acima, o pré-carregamento em segundo plano da pasta atual (ver VideoBrowserViewModel) pode
+        // já ter gerado essa miniatura; essa chamada reaproveita o resultado (ou a geração em
+        // andamento) em vez de duplicar o trabalho.
+        bitmap = loadOrGenerateThumbnail(context, video, remoteServerRepository, remoteCredentialStore)
     }
 
     Box(

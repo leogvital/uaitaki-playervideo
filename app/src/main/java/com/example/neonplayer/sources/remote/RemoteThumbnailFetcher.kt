@@ -186,44 +186,52 @@ private fun extractFrame(path: String): Bitmap? {
 /** ~256 KB por bloco — grande o bastante pra cobrir o cabeçalho do contêiner e um frame-chave numa só ida à rede. */
 private const val THUMBNAIL_READ_CHUNK_BYTES = 256 * 1024
 
+/** Blocos mantidos simultaneamente — ver motivo na doc de [BufferedPositionedReader]. */
+private const val THUMBNAIL_READ_CHUNK_CACHE_SIZE = 3
+
 /**
  * `MediaMetadataRetriever` lê um contêiner de vídeo (moov/atoms) fazendo dezenas de leituras
  * posicionais pequenas e espalhadas pelo arquivo — sem buffer, cada uma virava uma ida e volta de
  * rede inteira (com toda a latência do protocolo SMB/SFTP), o principal motivo da miniatura remota
- * ser lenta. Aqui cada leitura pedida é servida de um bloco de [THUMBNAIL_READ_CHUNK_BYTES] mantido
- * em memória sempre que cai dentro dele; só busca um bloco novo na rede quando a posição pedida sai
- * do bloco atual — leituras próximas umas das outras (como as do parsing do contêiner) acabam
- * custando uma única ida à rede em vez de uma por leitura.
+ * ser lenta. Cada leitura pedida é servida de um bloco de [THUMBNAIL_READ_CHUNK_BYTES] em memória
+ * sempre que cai dentro de um; só busca um bloco novo na rede quando a posição pedida sai de todos
+ * os blocos guardados. Guarda os últimos [THUMBNAIL_READ_CHUNK_CACHE_SIZE] blocos (não só o
+ * último) porque o padrão típico de leitura desses contêineres pula entre o começo do arquivo
+ * (cabeçalho) e o fim (onde o índice `moov` costuma ficar em vídeo gravado por câmera, não
+ * otimizado para streaming) — com um único bloco, cada pulo descartava e buscava tudo de novo.
  */
 private class BufferedPositionedReader(
     private val size: Long,
     private val readAt: (position: Long, buffer: ByteArray, offset: Int, length: Int) -> Int,
 ) {
-    private var chunkStart = -1L
-    private var chunk: ByteArray? = null
-    private var chunkLength = 0
+    private class Chunk(val start: Long, val bytes: ByteArray, val length: Int)
+
+    /** Mais recentemente usado primeiro. */
+    private val chunks = ArrayDeque<Chunk>(THUMBNAIL_READ_CHUNK_CACHE_SIZE)
 
     fun read(position: Long, buffer: ByteArray, offset: Int, length: Int): Int {
         if (position >= size) return -1
         val toRead = minOf(length.toLong(), size - position).toInt()
 
-        val cached = chunk
-        if (cached != null && position >= chunkStart && position + toRead <= chunkStart + chunkLength) {
-            System.arraycopy(cached, (position - chunkStart).toInt(), buffer, offset, toRead)
+        val hit = chunks.firstOrNull { position >= it.start && position + toRead <= it.start + it.length }
+        if (hit != null) {
+            System.arraycopy(hit.bytes, (position - hit.start).toInt(), buffer, offset, toRead)
+            chunks.remove(hit)
+            chunks.addFirst(hit)
             return toRead
         }
 
         val newChunkCapacity = maxOf(THUMBNAIL_READ_CHUNK_BYTES, toRead)
-        val newChunk = cached?.takeIf { it.size >= newChunkCapacity } ?: ByteArray(newChunkCapacity)
         val newChunkMaxLength = minOf(newChunkCapacity.toLong(), size - position).toInt()
-        val actuallyRead = readAt(position, newChunk, 0, newChunkMaxLength)
+        val newBytes = ByteArray(newChunkCapacity)
+        val actuallyRead = readAt(position, newBytes, 0, newChunkMaxLength)
         if (actuallyRead <= 0) return actuallyRead
 
-        chunkStart = position
-        chunk = newChunk
-        chunkLength = actuallyRead
+        chunks.addFirst(Chunk(position, newBytes, actuallyRead))
+        if (chunks.size > THUMBNAIL_READ_CHUNK_CACHE_SIZE) chunks.removeLast()
+
         val copyLength = minOf(toRead, actuallyRead)
-        System.arraycopy(newChunk, 0, buffer, offset, copyLength)
+        System.arraycopy(newBytes, 0, buffer, offset, copyLength)
         return copyLength
     }
 }
