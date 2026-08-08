@@ -29,10 +29,24 @@ import com.example.neonplayer.sources.remote.RemoteVideo
 import com.example.neonplayer.sources.remote.fetchRemoteThumbnail
 import com.example.neonplayer.sources.thumbnailCacheKey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 private const val THUMBNAIL_WIDTH = 320
 private const val THUMBNAIL_HEIGHT = 180
+
+/**
+ * Espera antes de *gerar* uma miniatura nova (só no cache miss — uma já em cache aparece na hora,
+ * sem espera nenhuma). Ao rolar rápido por uma lista longa, cada item que passa pela tela chega a
+ * compor por um instante; sem essa espera, cada um desses disparava uma geração (conexão de rede
+ * inteira, no caso remoto) que era cancelada quase imediatamente ao sair de tela — desperdiçando o
+ * pouco de concorrência disponível (ver [com.example.neonplayer.sources.remote.fetchRemoteThumbnail])
+ * e atrasando justamente os itens em que o usuário parou para olhar. Como o Compose cancela a
+ * `LaunchedEffect` de qualquer item que sai da composição (rolou pra fora da tela), um item só
+ * chega a de fato gerar a miniatura se continuar visível pelos [THUMBNAIL_GENERATION_DEBOUNCE_MS]
+ * inteiros — ou seja, só o que está parado na tela agora.
+ */
+private const val THUMBNAIL_GENERATION_DEBOUNCE_MS = 3_000L
 
 /**
  * Miniatura de um vídeo, com cache em memória+disco ([ThumbnailStore]). Vídeos locais usam
@@ -55,6 +69,8 @@ fun VideoThumbnail(video: PlayableVideo, modifier: Modifier = Modifier) {
             bitmap = cached
             return@LaunchedEffect
         }
+
+        delay(THUMBNAIL_GENERATION_DEBOUNCE_MS)
 
         val generated = if (isLocal) {
             withContext(Dispatchers.IO) {
