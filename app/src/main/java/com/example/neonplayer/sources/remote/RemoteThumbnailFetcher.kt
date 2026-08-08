@@ -27,7 +27,13 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
-private const val THUMBNAIL_TIMEOUT_MS = 15_000L
+/**
+ * Bem mais curto que antes (era 15s) — inspirado no thumbnailer do VLC
+ * (`modules/misc/medialibrary/Thumbnailer.cpp`, que usa 3s): uma miniatura que não sai rápido deve
+ * desistir logo, não segurar por 15s uma das poucas vagas de concorrência ([MAX_CONCURRENT_THUMBNAILS_PER_SERVER])
+ * enquanto outros itens visíveis esperam a vez.
+ */
+private const val THUMBNAIL_TIMEOUT_MS = 6_000L
 private const val SESSION_IDLE_TIMEOUT_MS = 60_000L
 private const val MAX_CONCURRENT_THUMBNAILS_PER_SERVER = 3
 
@@ -102,9 +108,7 @@ private object RemoteSessionCache {
 private val thumbnailSemaphores = ConcurrentHashMap<String, Semaphore>()
 private fun semaphoreFor(serverId: String): Semaphore =
     thumbnailSemaphores.computeIfAbsent(serverId) { Semaphore(MAX_CONCURRENT_THUMBNAILS_PER_SERVER) }
-// 5s em vez do início do vídeo — muitos vídeos abrem com um frame preto (fade-in/logo). OPTION_CLOSEST
-// (não OPTION_CLOSEST_SYNC) decodifica o frame exato mais próximo em vez do keyframe anterior, que em
-// vídeos com keyframes espaçados (>5s) podia cair de volta no frame 0 e reproduzir o mesmo problema.
+// 5s em vez do início do vídeo — muitos vídeos abrem com um frame preto (fade-in/logo).
 private const val THUMBNAIL_FRAME_TIME_US = 5_000_000L
 
 /**
@@ -146,11 +150,20 @@ suspend fun fetchRemoteThumbnail(
     }
 }
 
+/**
+ * `OPTION_CLOSEST_SYNC` (frame-chave mais próximo, sem decodificar nada depois dele) em vez de
+ * `OPTION_CLOSEST` (decodifica exatamente o frame de [THUMBNAIL_FRAME_TIME_US], o que exige
+ * decodificar tudo desde o frame-chave anterior) — a mesma escolha do "fast seek" do thumbnailer do
+ * VLC (`VLC_THUMBNAILER_SEEK_FAST` em `modules/misc/medialibrary/Thumbnailer.cpp`). Em vídeo remoto
+ * cada frame decodificado é mais dados lidos pela rede; essa troca é a que mais reduz o tempo de
+ * geração. Contrapartida aceita: em vídeos com frames-chave muito espaçados (>5s), pode cair de
+ * volta no frame 0 (preto/logo) em vez do frame mais próximo de 5s — velocidade importa mais aqui.
+ */
 private fun extractFrame(dataSource: MediaDataSource): Bitmap? {
     val retriever = MediaMetadataRetriever()
     return try {
         retriever.setDataSource(dataSource)
-        retriever.getFrameAtTime(THUMBNAIL_FRAME_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST)
+        retriever.getFrameAtTime(THUMBNAIL_FRAME_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
     } catch (e: Exception) {
         null
     } finally {
@@ -162,11 +175,56 @@ private fun extractFrame(path: String): Bitmap? {
     val retriever = MediaMetadataRetriever()
     return try {
         retriever.setDataSource(path)
-        retriever.getFrameAtTime(THUMBNAIL_FRAME_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST)
+        retriever.getFrameAtTime(THUMBNAIL_FRAME_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
     } catch (e: Exception) {
         null
     } finally {
         retriever.release()
+    }
+}
+
+/** ~256 KB por bloco — grande o bastante pra cobrir o cabeçalho do contêiner e um frame-chave numa só ida à rede. */
+private const val THUMBNAIL_READ_CHUNK_BYTES = 256 * 1024
+
+/**
+ * `MediaMetadataRetriever` lê um contêiner de vídeo (moov/atoms) fazendo dezenas de leituras
+ * posicionais pequenas e espalhadas pelo arquivo — sem buffer, cada uma virava uma ida e volta de
+ * rede inteira (com toda a latência do protocolo SMB/SFTP), o principal motivo da miniatura remota
+ * ser lenta. Aqui cada leitura pedida é servida de um bloco de [THUMBNAIL_READ_CHUNK_BYTES] mantido
+ * em memória sempre que cai dentro dele; só busca um bloco novo na rede quando a posição pedida sai
+ * do bloco atual — leituras próximas umas das outras (como as do parsing do contêiner) acabam
+ * custando uma única ida à rede em vez de uma por leitura.
+ */
+private class BufferedPositionedReader(
+    private val size: Long,
+    private val readAt: (position: Long, buffer: ByteArray, offset: Int, length: Int) -> Int,
+) {
+    private var chunkStart = -1L
+    private var chunk: ByteArray? = null
+    private var chunkLength = 0
+
+    fun read(position: Long, buffer: ByteArray, offset: Int, length: Int): Int {
+        if (position >= size) return -1
+        val toRead = minOf(length.toLong(), size - position).toInt()
+
+        val cached = chunk
+        if (cached != null && position >= chunkStart && position + toRead <= chunkStart + chunkLength) {
+            System.arraycopy(cached, (position - chunkStart).toInt(), buffer, offset, toRead)
+            return toRead
+        }
+
+        val newChunkCapacity = maxOf(THUMBNAIL_READ_CHUNK_BYTES, toRead)
+        val newChunk = cached?.takeIf { it.size >= newChunkCapacity } ?: ByteArray(newChunkCapacity)
+        val newChunkMaxLength = minOf(newChunkCapacity.toLong(), size - position).toInt()
+        val actuallyRead = readAt(position, newChunk, 0, newChunkMaxLength)
+        if (actuallyRead <= 0) return actuallyRead
+
+        chunkStart = position
+        chunk = newChunk
+        chunkLength = actuallyRead
+        val copyLength = minOf(toRead, actuallyRead)
+        System.arraycopy(newChunk, 0, buffer, offset, copyLength)
+        return copyLength
     }
 }
 
@@ -210,12 +268,11 @@ private fun fetchSmbThumbnailUsing(session: Session, shareName: String, video: R
         )
         return try {
             val size = file.getFileInformation(FileStandardInformation::class.java).endOfFile
-            extractFrame(
-                PositionedMediaDataSource(size) { position, buffer, offset, length ->
-                    val read = file.read(buffer, position, offset, length)
-                    if (read == -1) -1 else read
-                },
-            )
+            val reader = BufferedPositionedReader(size) { position, buffer, offset, length ->
+                val read = file.read(buffer, position, offset, length)
+                if (read == -1) -1 else read
+            }
+            extractFrame(PositionedMediaDataSource(size, reader::read))
         } finally {
             runCatching { file.close() }
         }
@@ -236,12 +293,11 @@ private fun fetchSftpThumbnailUsing(ssh: SSHClient, video: RemoteVideo): Bitmap?
         val file = sftp.open(video.remotePath)
         return try {
             val size = file.length()
-            extractFrame(
-                PositionedMediaDataSource(size) { position, buffer, offset, length ->
-                    val read = file.read(position, buffer, offset, length)
-                    if (read == -1) -1 else read
-                },
-            )
+            val reader = BufferedPositionedReader(size) { position, buffer, offset, length ->
+                val read = file.read(position, buffer, offset, length)
+                if (read == -1) -1 else read
+            }
+            extractFrame(PositionedMediaDataSource(size, reader::read))
         } finally {
             runCatching { file.close() }
         }
