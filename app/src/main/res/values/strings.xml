@@ -127,6 +127,8 @@
     <string name="collection_create">Criar</string>
 
     <string name="favorites_collections_section">Coleções</string>
+    <string name="favorites_collections_section_origin">Coleções — %1$s</string>
+    <string name="collection_origin_mixed">Origens mistas</string>
     <string name="collection_folder_count">%1$d pasta(s)</string>
     <string name="collection_delete">Excluir coleção</string>
     <string name="collection_delete_title">Excluir coleção</string>

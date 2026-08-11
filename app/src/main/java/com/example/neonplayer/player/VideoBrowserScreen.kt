@@ -85,6 +85,7 @@ import com.example.neonplayer.favorites.FavoriteCollection
 import com.example.neonplayer.sources.PlayableVideo
 import com.example.neonplayer.sources.SourceRef
 import com.example.neonplayer.sources.VideoViewMode
+import com.example.neonplayer.sources.favoriteSourceId
 import com.example.neonplayer.sources.sortedByOption
 import com.example.neonplayer.ui.SortMenuButton
 import com.example.neonplayer.ui.pullToRefreshAtEnd
@@ -448,6 +449,11 @@ fun VideoBrowserScreen(
     }
 
     if (showCollectionChooser) {
+        // Mapeia sourceId -> nome amigável, para mostrar de qual fonte vem cada coleção existente
+        // — duas coleções podem ter o mesmo nome vindas de fontes diferentes (ex: "Filmes" local e
+        // "Filmes" num servidor SMB), e sem essa indicação não dá para saber qual é qual aqui.
+        val sourceLabelsById = sourceOptions.associate { it.ref.favoriteSourceId to it.label }
+        val mixedOriginLabel = stringResource(R.string.collection_origin_mixed)
         AlertDialog(
             onDismissRequest = { showCollectionChooser = false },
             title = { Text(stringResource(R.string.collection_chooser_title)) },
@@ -462,9 +468,14 @@ fun VideoBrowserScreen(
                         },
                     )
                     collections.forEach { collection ->
+                        val originLabel = collection.folders.map { it.sourceId }.distinct().singleOrNull()
+                            ?.let { sourceLabelsById[it] ?: it }
+                            ?: mixedOriginLabel
                         ListItem(
                             headlineContent = { Text(collection.name, maxLines = 1) },
-                            supportingContent = { Text(stringResource(R.string.collection_folder_count, collection.folders.size)) },
+                            supportingContent = {
+                                Text("$originLabel · " + stringResource(R.string.collection_folder_count, collection.folders.size))
+                            },
                             leadingContent = { Icon(imageVector = Icons.Filled.Folder, contentDescription = null) },
                             modifier = Modifier.clickable {
                                 showCollectionChooser = false

@@ -17,6 +17,8 @@ import com.example.neonplayer.R
 import com.example.neonplayer.favorites.FavoritesRepository
 import com.example.neonplayer.sources.PlayableVideo
 import com.example.neonplayer.sources.PlaybackResumeStore
+import com.example.neonplayer.sources.VideoShareController
+import com.example.neonplayer.sources.VideoShareRepository
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
 import com.example.neonplayer.sources.local.DeleteVideoResult
 import com.example.neonplayer.sources.local.LocalVideo
@@ -90,6 +92,11 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private val sftpRepository = SftpVideoRepository(application)
     private val ftpRepository = FtpVideoRepository(application)
     private val playbackResumeStore = PlaybackResumeStore(application)
+
+    val shareController = VideoShareController(
+        viewModelScope,
+        VideoShareRepository(application, NeonDataSourceFactory(application, remoteServerRepository, remoteCredentialStore)),
+    )
 
     val player: ExoPlayer = buildPlayer(application, remoteServerRepository, remoteCredentialStore)
 
@@ -261,6 +268,11 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             favoritesRepository.toggleFavorite(video.sourceId, video.videoId)
         }
+    }
+
+    fun shareCurrentVideo() {
+        val video = playlist.getOrNull(player.currentMediaItemIndex) ?: return
+        shareController.share(video)
     }
 
     /** Exclui o vídeo em reprodução, respeitando o mesmo fluxo por fonte usado na lista de navegação (ver [VideoBrowserViewModel.deleteVideo]). */

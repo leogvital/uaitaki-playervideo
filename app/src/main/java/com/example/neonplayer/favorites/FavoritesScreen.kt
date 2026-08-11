@@ -102,6 +102,14 @@ fun FavoritesScreen(
             val groups = sortedVideos.groupBy { it.sourceId }
                 .map { (sourceId, videos) -> (uiState.sourceLabels[sourceId] ?: sourceId) to videos }
 
+            // Duas coleções podem ter o mesmo nome vindas de fontes diferentes (ex: "Filmes" local
+            // e "Filmes" num servidor SMB) — agrupar por origem, do mesmo jeito que os vídeos
+            // favoritos avulsos acima, deixa claro visualmente onde cada uma está armazenada.
+            val collectionOriginMixedLabel = stringResource(R.string.collection_origin_mixed)
+            val collectionGroups = collections
+                .groupBy { collectionOrigin(it, uiState.sourceLabels, collectionOriginMixedLabel) }
+                .toList()
+
             when {
                 uiState.isLoading -> CircularProgressIndicator()
 
@@ -122,9 +130,11 @@ fun FavoritesScreen(
 
                     if (viewMode == VideoViewMode.LIST) {
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            if (collections.isNotEmpty()) {
-                                item(key = "header:collections") { SectionHeader(stringResource(R.string.favorites_collections_section)) }
-                                itemsIndexed(collections, key = { _, collection -> "collection:" + collection.id }) { _, collection ->
+                            collectionGroups.forEach { (origin, originCollections) ->
+                                item(key = "header:collections:$origin") {
+                                    SectionHeader(stringResource(R.string.favorites_collections_section_origin, origin))
+                                }
+                                itemsIndexed(originCollections, key = { _, collection -> "collection:" + collection.id }) { _, collection ->
                                     CollectionRow(
                                         collection = collection,
                                         onClick = { onCollectionClick(collection) },
@@ -154,11 +164,11 @@ fun FavoritesScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(8.dp),
                         ) {
-                            if (collections.isNotEmpty()) {
-                                item(span = { GridItemSpan(maxLineSpan) }, key = "header:collections") {
-                                    SectionHeader(stringResource(R.string.favorites_collections_section))
+                            collectionGroups.forEach { (origin, originCollections) ->
+                                item(span = { GridItemSpan(maxLineSpan) }, key = "header:collections:$origin") {
+                                    SectionHeader(stringResource(R.string.favorites_collections_section_origin, origin))
                                 }
-                                collections.forEach { collection ->
+                                originCollections.forEach { collection ->
                                     item(span = { GridItemSpan(maxLineSpan) }, key = "collection:" + collection.id) {
                                         CollectionRow(
                                             collection = collection,
@@ -237,6 +247,13 @@ private fun CollectionRow(
         },
         modifier = modifier.clickable(onClick = onClick),
     )
+}
+
+/** Rótulo de origem de uma coleção: nome da fonte se todas as pastas vierem do mesmo lugar, ou [mixedLabel] se a coleção mistura pastas de fontes diferentes (ex: uma pasta local + uma do SMB). */
+private fun collectionOrigin(collection: FavoriteCollection, sourceLabels: Map<String, String>, mixedLabel: String): String {
+    val sourceIds = collection.folders.map { it.sourceId }.distinct()
+    val soleSourceId = sourceIds.singleOrNull() ?: return mixedLabel
+    return sourceLabels[soleSourceId] ?: soleSourceId
 }
 
 @Composable

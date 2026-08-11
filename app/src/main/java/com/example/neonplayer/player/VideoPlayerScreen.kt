@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ScreenLockLandscape
 import androidx.compose.material.icons.filled.ScreenLockPortrait
 import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -103,6 +104,7 @@ fun VideoPlayerScreen(
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val uiState by viewModel.uiState.collectAsState()
+    val shareState by viewModel.shareController.state.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -365,6 +367,13 @@ fun VideoPlayerScreen(
                         tint = if (uiState.isFavorite) MaterialTheme.colorScheme.primary else Color.White,
                     )
                 }
+                IconButton(onClick = { keepControlsVisible(); viewModel.shareCurrentVideo() }) {
+                    Icon(
+                        imageVector = Icons.Filled.Share,
+                        contentDescription = stringResource(R.string.share_video),
+                        tint = Color.White,
+                    )
+                }
                 IconButton(onClick = { keepControlsVisible(); pendingDelete = true }) {
                     Icon(
                         imageVector = Icons.Filled.Delete,
@@ -485,6 +494,12 @@ fun VideoPlayerScreen(
             }
         }
     }
+
+    ShareStateHandler(
+        state = shareState,
+        onConsume = viewModel.shareController::consume,
+        onCancel = viewModel.shareController::cancel,
+    )
 
     if (pendingDelete) {
         AlertDialog(
