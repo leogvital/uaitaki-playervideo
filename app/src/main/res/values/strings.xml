@@ -21,6 +21,18 @@
     <string name="share_error_title">Erro ao compartilhar</string>
     <string name="ok">OK</string>
 
+    <string name="video_info">Informações do vídeo</string>
+    <string name="video_info_name">Nome</string>
+    <string name="video_info_source">Origem</string>
+    <string name="video_info_path">Caminho</string>
+    <string name="video_info_size">Tamanho</string>
+    <string name="video_info_duration">Duração</string>
+    <string name="video_info_modified">Modificado em</string>
+    <string name="video_info_resolution">Resolução</string>
+    <string name="video_info_video_format">Vídeo</string>
+    <string name="video_info_audio_format">Áudio</string>
+    <string name="video_info_unavailable">Ainda não disponível — aguarde o vídeo carregar</string>
+
     <string name="delete_video">Excluir vídeo</string>
     <string name="delete_video_title">Excluir vídeo</string>
     <string name="delete_video_message">Tem certeza que deseja excluir \"%1$s\"? Essa ação não pode ser desfeita.</string>

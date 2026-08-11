@@ -240,7 +240,7 @@ private fun CollectionRow(
 }
 
 @Composable
-private fun SectionHeader(text: String, modifier: Modifier = Modifier) {
+fun SectionHeader(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text.uppercase(),
         style = MaterialTheme.typography.labelLarge,

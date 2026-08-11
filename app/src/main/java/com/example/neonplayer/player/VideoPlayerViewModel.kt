@@ -56,6 +56,22 @@ data class VideoPlayerUiState(
     val isShuffleEnabled: Boolean = false,
 )
 
+data class VideoInfo(
+    val displayName: String,
+    val sourceLabel: String,
+    val remotePath: String?,
+    val sizeBytes: Long,
+    val dateModifiedMs: Long,
+    val durationMs: Long,
+    val resolution: String?,
+    val videoCodec: String?,
+    val videoBitrateBps: Int?,
+    val frameRate: Float?,
+    val audioCodec: String?,
+    val audioChannels: Int?,
+    val audioSampleRateHz: Int?,
+)
+
 sealed interface VideoPlayerEvent {
     data class RequestSystemDeleteConfirmation(val intentSender: IntentSender) : VideoPlayerEvent
     data class DeleteFailed(val message: String) : VideoPlayerEvent
@@ -97,7 +113,15 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var canPersistResume = false
     private var resumeSaveTickCounter = 0
 
+    /** Nomes amigáveis dos servidores remotos, para exibir na caixa de informações do vídeo (ver [currentVideoInfo]) sem ler o DataStore de forma bloqueante na thread principal. */
+    private var serverNames: Map<String, String> = emptyMap()
+
     init {
+        viewModelScope.launch {
+            remoteServerRepository.serversFlow.collect { servers ->
+                serverNames = servers.associate { it.id to it.name }
+            }
+        }
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _uiState.value = _uiState.value.copy(isPlaying = isPlaying)
@@ -121,7 +145,13 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                     failedTitle,
                 )
                 viewModelScope.launch { _events.emit(VideoPlayerEvent.PlaybackError(message)) }
-                if (hasNext) skipToNext()
+                if (hasNext) {
+                    // Um erro fatal deixa o ExoPlayer em STATE_IDLE — seekToNextMediaItem() sozinho
+                    // só troca o índice do item atual, sem retomar o carregamento; sem o prepare()
+                    // aqui, o próximo vídeo (e todos depois dele) nunca chegava a tocar.
+                    skipToNext()
+                    player.prepare()
+                }
             }
         })
 
@@ -309,6 +339,34 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun clearResumePlaybackIfApplicable() {
         if (!canPersistResume) return
         viewModelScope.launch { playbackResumeStore.clearPlayback() }
+    }
+
+    /** Metadados do vídeo em reprodução para a caixa de informações (botão "i") — inclui formato de vídeo/áudio, só conhecido depois que o ExoPlayer detecta as faixas. */
+    fun currentVideoInfo(): VideoInfo? {
+        val video = playlist.getOrNull(player.currentMediaItemIndex) ?: return null
+        val sourceLabel = when (video) {
+            is LocalVideo -> getApplication<Application>().getString(R.string.browse_local_videos)
+            is RemoteVideo -> serverNames[video.serverId] ?: video.serverId
+            else -> video.sourceId
+        }
+        val videoFormat = player.videoFormat
+        val audioFormat = player.audioFormat
+        val duration = player.duration
+        return VideoInfo(
+            displayName = video.displayName,
+            sourceLabel = sourceLabel,
+            remotePath = (video as? RemoteVideo)?.remotePath,
+            sizeBytes = video.sizeBytes,
+            dateModifiedMs = video.dateModifiedMs,
+            durationMs = if (duration != C.TIME_UNSET) duration else video.durationMs,
+            resolution = videoFormat?.let { f -> if (f.width > 0 && f.height > 0) "${f.width}x${f.height}" else null },
+            videoCodec = videoFormat?.sampleMimeType,
+            videoBitrateBps = videoFormat?.bitrate?.takeIf { it > 0 },
+            frameRate = videoFormat?.frameRate?.takeIf { it > 0 },
+            audioCodec = audioFormat?.sampleMimeType,
+            audioChannels = audioFormat?.channelCount?.takeIf { it > 0 },
+            audioSampleRateHz = audioFormat?.sampleRate?.takeIf { it > 0 },
+        )
     }
 
     private fun updateCurrentItemState() {

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ScreenLockLandscape
@@ -166,6 +167,13 @@ fun VideoPlayerScreen(
     var panOffset by remember { mutableStateOf(Offset.Zero) }
 
     var pendingDelete by remember { mutableStateOf(false) }
+    var showVideoInfo by remember { mutableStateOf(false) }
+
+    // Posição sendo arrastada na barra de progresso — só chega ao player (viewModel.seekToPosition)
+    // quando o arraste termina; chamar seekTo a cada tick de onValueChange (muitas vezes por
+    // segundo) enche o ExoPlayer de pedidos de seek e trava a reprodução, principalmente em fontes
+    // remotas onde cada seek pode envolver uma ida à rede.
+    var sliderDragPositionMs by remember { mutableStateOf<Long?>(null) }
 
     // Ferramentas (barras de topo/rodapé) somem sozinhas após 5s em reprodução; um toque simples
     // na tela mostra/esconde. hideTimerKey reinicia a contagem sem trocar a visibilidade (ex: ao
@@ -364,6 +372,13 @@ fun VideoPlayerScreen(
                         tint = Color.White,
                     )
                 }
+                IconButton(onClick = { keepControlsVisible(); showVideoInfo = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = stringResource(R.string.video_info),
+                        tint = Color.White,
+                    )
+                }
             }
         }
 
@@ -384,10 +399,16 @@ fun VideoPlayerScreen(
                 Text(text = uiState.currentTitle, color = Color.White)
 
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = formatTimeMs(uiState.currentPositionMs), color = Color.White)
+                    Text(text = formatTimeMs(sliderDragPositionMs ?: uiState.currentPositionMs), color = Color.White)
                     Slider(
-                        value = uiState.currentPositionMs.toFloat().coerceIn(0f, uiState.durationMs.toFloat().coerceAtLeast(1f)),
-                        onValueChange = { keepControlsVisible(); viewModel.seekToPosition(it.toLong()) },
+                        value = (sliderDragPositionMs ?: uiState.currentPositionMs)
+                            .toFloat()
+                            .coerceIn(0f, uiState.durationMs.toFloat().coerceAtLeast(1f)),
+                        onValueChange = { keepControlsVisible(); sliderDragPositionMs = it.toLong() },
+                        onValueChangeFinished = {
+                            sliderDragPositionMs?.let { viewModel.seekToPosition(it) }
+                            sliderDragPositionMs = null
+                        },
                         valueRange = 0f..uiState.durationMs.toFloat().coerceAtLeast(1f),
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
@@ -485,6 +506,69 @@ fun VideoPlayerScreen(
             },
         )
     }
+
+    if (showVideoInfo) {
+        // Lido de novo a cada abertura (em vez de guardado em estado) — o formato de vídeo/áudio só
+        // fica disponível depois que o ExoPlayer detecta as faixas, então um valor cacheado no
+        // início da tela poderia estar incompleto.
+        val info = viewModel.currentVideoInfo()
+        AlertDialog(
+            onDismissRequest = { showVideoInfo = false },
+            title = { Text(stringResource(R.string.video_info)) },
+            text = {
+                if (info == null) {
+                    Text(stringResource(R.string.video_info_unavailable))
+                } else {
+                    Column {
+                        VideoInfoRow(stringResource(R.string.video_info_name), info.displayName)
+                        VideoInfoRow(stringResource(R.string.video_info_source), info.sourceLabel)
+                        info.remotePath?.let { VideoInfoRow(stringResource(R.string.video_info_path), it) }
+                        VideoInfoRow(stringResource(R.string.video_info_size), formatFileSize(info.sizeBytes))
+                        if (info.durationMs > 0) VideoInfoRow(stringResource(R.string.video_info_duration), formatTimeMs(info.durationMs))
+                        if (info.dateModifiedMs > 0) VideoInfoRow(stringResource(R.string.video_info_modified), formatDate(info.dateModifiedMs))
+                        info.resolution?.let { VideoInfoRow(stringResource(R.string.video_info_resolution), it) }
+                        formatCodecSummary(info.videoCodec, info.videoBitrateBps, info.frameRate)?.let {
+                            VideoInfoRow(stringResource(R.string.video_info_video_format), it)
+                        }
+                        formatAudioSummary(info.audioCodec, info.audioChannels, info.audioSampleRateHz)?.let {
+                            VideoInfoRow(stringResource(R.string.video_info_audio_format), it)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showVideoInfo = false }) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun VideoInfoRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(text = label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(0.4f))
+        Text(text = value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.6f))
+    }
+}
+
+private fun formatCodecSummary(codec: String?, bitrateBps: Int?, frameRate: Float?): String? {
+    if (codec == null && bitrateBps == null && frameRate == null) return null
+    val parts = mutableListOf<String>()
+    codec?.let { parts += it.substringAfterLast('/') }
+    bitrateBps?.let { parts += "%.1f Mbps".format(it / 1_000_000f) }
+    frameRate?.let { parts += "%.0f fps".format(it) }
+    return parts.joinToString(" · ")
+}
+
+private fun formatAudioSummary(codec: String?, channels: Int?, sampleRateHz: Int?): String? {
+    if (codec == null && channels == null && sampleRateHz == null) return null
+    val parts = mutableListOf<String>()
+    codec?.let { parts += it.substringAfterLast('/') }
+    channels?.let { parts += if (it == 1) "mono" else if (it == 2) "estéreo" else "$it canais" }
+    sampleRateHz?.let { parts += "%.1f kHz".format(it / 1000f) }
+    return parts.joinToString(" · ")
 }
 
 private fun formatTimeMs(ms: Long): String {

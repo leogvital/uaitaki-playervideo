@@ -217,6 +217,8 @@ fun formatSubtitle(video: PlayableVideo, sourceLabel: String? = null): String {
     return parts.joinToString(" · ")
 }
 
+fun formatDate(dateModifiedMs: Long): String = dateFormatter.format(dateModifiedMs)
+
 private fun formatDuration(durationMs: Long): String {
     val totalSeconds = TimeUnit.MILLISECONDS.toSeconds(durationMs)
     val minutes = totalSeconds / 60
@@ -224,7 +226,7 @@ private fun formatDuration(durationMs: Long): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
-private fun formatFileSize(bytes: Long): String {
+fun formatFileSize(bytes: Long): String {
     if (bytes <= 0) return "0 B"
     val units = arrayOf("B", "KB", "MB", "GB", "TB")
     val digitGroups = (ln(bytes.toDouble()) / ln(1024.0)).toInt().coerceIn(0, units.lastIndex)

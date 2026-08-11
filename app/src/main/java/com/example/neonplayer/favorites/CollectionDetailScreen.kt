@@ -74,20 +74,28 @@ fun CollectionDetailScreen(
             contentAlignment = Alignment.Center,
         ) {
             val sortedVideos = uiState.videos.sortedByOption(sortOption)
+            // Agrupado por fonte de origem (local ou cada servidor remoto) — uma coleção pode juntar
+            // pastas de fontes diferentes, e sem essa separação não dava pra saber de onde cada
+            // vídeo veio.
+            val groups = sortedVideos.groupBy { it.sourceId }
+                .map { (sourceId, videos) -> (uiState.sourceLabels[sourceId] ?: sourceId) to videos }
             when {
                 uiState.isLoading -> CircularProgressIndicator()
                 sortedVideos.isEmpty() -> Text(stringResource(R.string.collection_empty))
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(sortedVideos, key = { _, video -> video.sourceId + video.videoId }) { index, video ->
-                        VideoListRow(
-                            video = video,
-                            subtitle = formatSubtitle(video),
-                            onClick = { onVideoClick(sortedVideos, index) },
-                            onToggleFavorite = { viewModel.toggleFavorite(video) },
-                            onShareClick = { viewModel.shareController.share(video) },
-                            onDeleteClick = null,
-                        )
-                        HorizontalDivider()
+                    groups.forEach { (label, videos) ->
+                        item(key = "header:$label") { SectionHeader(label) }
+                        itemsIndexed(videos, key = { _, video -> video.sourceId + video.videoId }) { _, video ->
+                            VideoListRow(
+                                video = video,
+                                subtitle = formatSubtitle(video),
+                                onClick = { onVideoClick(sortedVideos, sortedVideos.indexOf(video)) },
+                                onToggleFavorite = { viewModel.toggleFavorite(video) },
+                                onShareClick = { viewModel.shareController.share(video) },
+                                onDeleteClick = null,
+                            )
+                            HorizontalDivider()
+                        }
                     }
                 }
             }

@@ -3,6 +3,7 @@ package com.example.neonplayer.favorites
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.neonplayer.R
 import com.example.neonplayer.sources.PlayableVideo
 import com.example.neonplayer.sources.RecursiveVideoFetcher
 import com.example.neonplayer.sources.SOURCE_LOCAL
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 data class CollectionDetailUiState(
     val videos: List<PlayableVideo> = emptyList(),
     val isLoading: Boolean = false,
+    val sourceLabels: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -100,7 +102,11 @@ class CollectionDetailViewModel(application: Application) : AndroidViewModel(app
                     .awaitAll()
                     .flatten()
             }
-            _uiState.value = CollectionDetailUiState(videos = applyFavorites(videos), isLoading = false)
+            val sourceLabels = buildMap {
+                put(SOURCE_LOCAL, getApplication<Application>().getString(R.string.browse_local_videos))
+                remoteServerRepository.serversFlow.first().forEach { put(it.id, it.name) }
+            }
+            _uiState.value = CollectionDetailUiState(videos = applyFavorites(videos), isLoading = false, sourceLabels = sourceLabels)
         }
     }
 
