@@ -14,6 +14,10 @@ import com.example.neonplayer.sources.SortDirection
 import com.example.neonplayer.sources.SortField
 import com.example.neonplayer.sources.SortOption
 import com.example.neonplayer.sources.SortPreferences
+import com.example.neonplayer.sources.VideoShareController
+import com.example.neonplayer.sources.VideoShareRepository
+import com.example.neonplayer.sources.remote.NeonDataSourceFactory
+import com.example.neonplayer.sources.remote.RemoteCredentialStore
 import com.example.neonplayer.sources.remote.RemoteServerRepository
 import com.example.neonplayer.sources.remote.RemoteVideo
 import com.example.neonplayer.sources.sftp.SftpVideoRepository
@@ -40,15 +44,22 @@ data class CollectionDetailUiState(
  * concorrentemente em vez de sequencialmente.
  */
 class CollectionDetailViewModel(application: Application) : AndroidViewModel(application) {
+    private val remoteServerRepository = RemoteServerRepository(application)
     private val recursiveVideoFetcher = RecursiveVideoFetcher(
         LocalVideoRepository(application),
-        RemoteServerRepository(application),
+        remoteServerRepository,
         SmbVideoRepository(application),
         SftpVideoRepository(application),
         FtpVideoRepository(application),
     )
     private val favoritesRepository = FavoritesRepository(application)
     private val sortPreferences = SortPreferences(application)
+    private val remoteCredentialStore = RemoteCredentialStore(application)
+
+    val shareController = VideoShareController(
+        viewModelScope,
+        VideoShareRepository(application, NeonDataSourceFactory(application, remoteServerRepository, remoteCredentialStore)),
+    )
 
     private val _uiState = MutableStateFlow(CollectionDetailUiState())
     val uiState: StateFlow<CollectionDetailUiState> = _uiState.asStateFlow()

@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.neonplayer.R
+import com.example.neonplayer.player.ShareStateHandler
 import com.example.neonplayer.player.VideoGridCard
 import com.example.neonplayer.player.VideoListRow
 import com.example.neonplayer.player.formatSubtitle
@@ -70,6 +71,7 @@ fun FavoritesScreen(
     var viewMode by rememberSaveable { mutableStateOf(VideoViewMode.LIST) }
     var pendingDeleteCollection by remember { mutableStateOf<FavoriteCollection?>(null) }
     val sortOption by viewModel.sortOption.collectAsState()
+    val shareState by viewModel.shareController.state.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
@@ -139,6 +141,7 @@ fun FavoritesScreen(
                                         subtitle = formatSubtitle(video),
                                         onClick = { onVideoClick(sortedVideos, sortedVideos.indexOf(video)) },
                                         onToggleFavorite = { viewModel.toggleFavorite(video) },
+                                        onShareClick = { viewModel.shareController.share(video) },
                                         onDeleteClick = null,
                                     )
                                     HorizontalDivider()
@@ -175,6 +178,7 @@ fun FavoritesScreen(
                                         subtitle = formatSubtitle(video),
                                         onClick = { onVideoClick(sortedVideos, sortedVideos.indexOf(video)) },
                                         onToggleFavorite = { viewModel.toggleFavorite(video) },
+                                        onShareClick = { viewModel.shareController.share(video) },
                                         onDeleteClick = null,
                                         modifier = Modifier.padding(4.dp),
                                     )
@@ -186,6 +190,12 @@ fun FavoritesScreen(
             }
         }
     }
+
+    ShareStateHandler(
+        state = shareState,
+        onConsume = viewModel.shareController::consume,
+        onCancel = viewModel.shareController::cancel,
+    )
 
     pendingDeleteCollection?.let { collection ->
         AlertDialog(

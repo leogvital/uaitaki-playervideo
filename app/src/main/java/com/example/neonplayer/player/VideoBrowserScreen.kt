@@ -116,6 +116,7 @@ fun VideoBrowserScreen(
     val selectionModeActive by viewModel.selectionModeActive.collectAsState()
     val selectedFolders by viewModel.selectedFolders.collectAsState()
     val collections by viewModel.collections.collectAsState(initial = emptyList())
+    val shareState by viewModel.shareController.state.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<PlayableVideo?>(null) }
@@ -372,6 +373,7 @@ fun VideoBrowserScreen(
                             subtitle = formatSubtitle(video),
                             onClick = { onVideoClick(sortedVideos, index) },
                             onToggleFavorite = { viewModel.toggleFavorite(video) },
+                            onShareClick = { viewModel.shareController.share(video) },
                             onDeleteClick = { pendingDelete = video },
                         )
                         HorizontalDivider()
@@ -409,6 +411,7 @@ fun VideoBrowserScreen(
                             subtitle = formatSubtitle(video),
                             onClick = { onVideoClick(sortedVideos, index) },
                             onToggleFavorite = { viewModel.toggleFavorite(video) },
+                            onShareClick = { viewModel.shareController.share(video) },
                             onDeleteClick = { pendingDelete = video },
                         )
                     }
@@ -416,6 +419,12 @@ fun VideoBrowserScreen(
             }
         }
     }
+
+    ShareStateHandler(
+        state = shareState,
+        onConsume = viewModel.shareController::consume,
+        onCancel = viewModel.shareController::cancel,
+    )
 
     pendingDelete?.let { video ->
         AlertDialog(

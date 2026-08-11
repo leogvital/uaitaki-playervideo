@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Card
@@ -109,6 +110,7 @@ fun VideoListRow(
     subtitle: String,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onShareClick: () -> Unit,
     onDeleteClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -134,6 +136,9 @@ fun VideoListRow(
                         tint = if (video.isFavorite) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                     )
                 }
+                IconButton(onClick = onShareClick) {
+                    Icon(imageVector = Icons.Filled.Share, contentDescription = stringResource(R.string.share_video))
+                }
                 if (onDeleteClick != null) {
                     IconButton(onClick = onDeleteClick) {
                         Icon(
@@ -154,6 +159,7 @@ fun VideoGridCard(
     subtitle: String,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onShareClick: () -> Unit,
     onDeleteClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -182,12 +188,17 @@ fun VideoGridCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall)
-                if (onDeleteClick != null) {
-                    IconButton(onClick = onDeleteClick, modifier = Modifier.size(24.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.delete_video),
-                        )
+                Row {
+                    IconButton(onClick = onShareClick, modifier = Modifier.size(24.dp)) {
+                        Icon(imageVector = Icons.Filled.Share, contentDescription = stringResource(R.string.share_video))
+                    }
+                    if (onDeleteClick != null) {
+                        IconButton(onClick = onDeleteClick, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.delete_video),
+                            )
+                        }
                     }
                 }
             }

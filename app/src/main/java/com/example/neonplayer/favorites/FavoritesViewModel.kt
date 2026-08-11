@@ -10,8 +10,12 @@ import com.example.neonplayer.sources.SortDirection
 import com.example.neonplayer.sources.SortField
 import com.example.neonplayer.sources.SortOption
 import com.example.neonplayer.sources.SortPreferences
+import com.example.neonplayer.sources.VideoShareController
+import com.example.neonplayer.sources.VideoShareRepository
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
 import com.example.neonplayer.sources.local.LocalVideoRepository
+import com.example.neonplayer.sources.remote.NeonDataSourceFactory
+import com.example.neonplayer.sources.remote.RemoteCredentialStore
 import com.example.neonplayer.sources.remote.RemoteListResult
 import com.example.neonplayer.sources.remote.RemoteServerConfig
 import com.example.neonplayer.sources.remote.RemoteServerRepository
@@ -46,6 +50,12 @@ class FavoritesViewModel(application: Application) : AndroidViewModel(applicatio
     private val sftpRepository = SftpVideoRepository(application)
     private val ftpRepository = FtpVideoRepository(application)
     private val sortPreferences = SortPreferences(application)
+    private val remoteCredentialStore = RemoteCredentialStore(application)
+
+    val shareController = VideoShareController(
+        viewModelScope,
+        VideoShareRepository(application, NeonDataSourceFactory(application, remoteServerRepository, remoteCredentialStore)),
+    )
 
     private val _uiState = MutableStateFlow(FavoritesUiState())
     val uiState: StateFlow<FavoritesUiState> = _uiState.asStateFlow()

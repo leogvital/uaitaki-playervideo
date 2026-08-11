@@ -18,11 +18,14 @@ import com.example.neonplayer.sources.SortField
 import com.example.neonplayer.sources.SortOption
 import com.example.neonplayer.sources.SortPreferences
 import com.example.neonplayer.sources.SourceRef
+import com.example.neonplayer.sources.VideoShareController
+import com.example.neonplayer.sources.VideoShareRepository
 import com.example.neonplayer.sources.favoriteSourceId
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
 import com.example.neonplayer.sources.local.DeleteVideoResult
 import com.example.neonplayer.sources.local.LocalVideo
 import com.example.neonplayer.sources.local.LocalVideoRepository
+import com.example.neonplayer.sources.remote.NeonDataSourceFactory
 import com.example.neonplayer.sources.remote.RemoteCredentialStore
 import com.example.neonplayer.sources.remote.RemoteDeleteResult
 import com.example.neonplayer.sources.remote.RemoteListResult
@@ -83,6 +86,11 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     private val sortPreferences = SortPreferences(application)
     private val playbackResumeStore = PlaybackResumeStore(application)
     private val remoteCredentialStore = RemoteCredentialStore(application)
+
+    val shareController = VideoShareController(
+        viewModelScope,
+        VideoShareRepository(application, NeonDataSourceFactory(application, remoteServerRepository, remoteCredentialStore)),
+    )
 
     /** Pré-carregamento de miniaturas da pasta atual — cancelado a cada nova navegação, ver [prefetchThumbnails]. */
     private var thumbnailPrefetchJob: Job? = null

@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.neonplayer.R
+import com.example.neonplayer.player.ShareStateHandler
 import com.example.neonplayer.player.VideoListRow
 import com.example.neonplayer.player.formatSubtitle
 import com.example.neonplayer.sources.PlayableVideo
@@ -42,6 +43,7 @@ fun CollectionDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val sortOption by viewModel.sortOption.collectAsState()
+    val shareState by viewModel.shareController.state.collectAsState()
 
     LaunchedEffect(collection.id) { viewModel.load(collection) }
 
@@ -82,6 +84,7 @@ fun CollectionDetailScreen(
                             subtitle = formatSubtitle(video),
                             onClick = { onVideoClick(sortedVideos, index) },
                             onToggleFavorite = { viewModel.toggleFavorite(video) },
+                            onShareClick = { viewModel.shareController.share(video) },
                             onDeleteClick = null,
                         )
                         HorizontalDivider()
@@ -90,4 +93,10 @@ fun CollectionDetailScreen(
             }
         }
     }
+
+    ShareStateHandler(
+        state = shareState,
+        onConsume = viewModel.shareController::consume,
+        onCancel = viewModel.shareController::cancel,
+    )
 }

@@ -14,6 +14,12 @@
     <string name="skip_next">Próximo</string>
     <string name="add_favorite">Adicionar aos favoritos</string>
     <string name="remove_favorite">Remover dos favoritos</string>
+    <string name="share_video">Compartilhar vídeo</string>
+    <string name="share_preparing_title">Preparando para compartilhar…</string>
+    <string name="share_preparing_message">Baixando vídeo do servidor remoto — isso pode levar um tempo dependendo do tamanho do arquivo e da conexão.</string>
+    <string name="share_error_download_failed">Não foi possível baixar o vídeo do servidor para compartilhar.</string>
+    <string name="share_error_title">Erro ao compartilhar</string>
+    <string name="ok">OK</string>
 
     <string name="delete_video">Excluir vídeo</string>
     <string name="delete_video_title">Excluir vídeo</string>
