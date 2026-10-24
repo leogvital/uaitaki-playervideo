@@ -40,7 +40,10 @@ class RecursiveVideoFetcher(
             }
             if (result is RemoteListResult.Success) {
                 videos += result.videos
-                for (folder in result.folders) walk(folder.path)
+                // A entrada ".." (SFTP/FTP) é só um atalho de navegação para subir na UI — não é
+                // uma subpasta real, então não deve entrar na varredura recursiva (senão "reproduzir
+                // tudo"/coleções por pasta subiriam para fora da árvore da pasta atual).
+                for (folder in result.folders) if (!folder.isParent) walk(folder.path)
             }
         }
 

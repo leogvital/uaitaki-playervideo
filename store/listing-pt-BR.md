@@ -4,16 +4,16 @@
 Vídeo Players e Editores (Video Players & Editors)
 
 ## Título do app
-U.Ai.TAKi Player Vídeo
+Player Vídeo U.Ai.TAKi
 *(30 caracteres — limite do Play Console é 30; este título tem exatamente 22, cabe com folga)*
 
 ## Descrição curta (máx. 80 caracteres)
 Player de vídeo local, SMB, SFTP e FTP — simples, rápido e sem anúncios.
 *(73 caracteres)*
 
-## Descrição completa (máx. 4000 caracteres)
+## Descrição completa (máx. 3.500 caracteres)
 
-U.Ai.TAKi Player Vídeo é um player de vídeo direto ao ponto: reproduz os vídeos do seu aparelho e também os que estão guardados em servidores de rede (SMB, SFTP ou FTP), sem exigir conta, sem anúncios e sem coletar dados de uso.
+Player Vídeo U.Ai.TAKi é um player de vídeo direto ao ponto: reproduz os vídeos do seu aparelho e também os que estão guardados em servidores de rede (SMB, SFTP ou FTP), sem exigir conta, sem anúncios e sem coletar dados de uso.
 
 FONTES DE VÍDEO
 • Armazenamento local do celular
@@ -24,7 +24,7 @@ Cada servidor é configurado uma vez (host, porta, usuário, senha, caminho) e f
 
 NAVEGAÇÃO
 • Navegação por pastas e subpastas em todas as fontes, local ou remota
-• Miniaturas dos vídeos, geradas e guardadas no aparelho
+• Miniaturas dos vídeos, geradas e guardadas no aparelho, com pré-carregamento em segundo plano para rolagem mais fluida
 • Ordenação por nome, data ou tamanho, crescente ou decrescente
 • Visualização em lista ou em grade
 
@@ -39,10 +39,13 @@ PLAYER
 • Reprodução em ordem aleatória
 • Controles somem sozinhos durante a reprodução e reaparecem com um toque
 • A tela não escurece enquanto o vídeo está tocando
+• Informações do vídeo com um toque: resolução, codec, bitrate, tamanho do arquivo, data de modificação e origem
+• Compartilhe o vídeo diretamente da tela de reprodução para qualquer outro app (WhatsApp, e-mail, etc.)
 
 FAVORITOS E ORGANIZAÇÃO
 • Marque vídeos como favoritos com um toque
-• Favoritos ficam separados por fonte de origem (local ou cada servidor)
+• Favoritos e coleções são agrupados por fonte de origem (local ou cada servidor), evitando confusão entre pastas com nomes iguais em servidores diferentes
+• Compartilhe qualquer favorito direto da lista, sem precisar abri-lo primeiro — vídeos remotos são baixados automaticamente para compartilhamento
 • Exclua vídeos locais (com confirmação) ou remotos, quando a conta tiver permissão de escrita no servidor
 
 PRIVACIDADE POR DESIGN
@@ -52,6 +55,8 @@ PRIVACIDADE POR DESIGN
 • Política de privacidade completa disponível no app e no site do desenvolvedor
 
 Ideal para quem tem uma coleção de vídeos num NAS, servidor doméstico ou nuvem privada e quer assistir direto do celular, sem sincronizar ou copiar arquivo por arquivo.
+
+*(2.677 caracteres)*
 
 ## Categoria de classificação indicativa
 Recomendado preencher o questionário do Play Console como "Sem conteúdo sensível" — o app não hospeda, produz nem distribui conteúdo próprio; ele apenas reproduz arquivos que já estão no aparelho do usuário ou em servidores que o próprio usuário configura.

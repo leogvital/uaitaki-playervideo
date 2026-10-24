@@ -73,6 +73,7 @@ class ReadAheadDataSource(private val delegate: DataSource) : DataSource {
                     offerUntilStopped(Chunk.EndOfInput)
                     return
                 }
+                if (bytesRead == 0) throw IOException("Fonte remota retornou uma leitura vazia")
                 if (bytesRead > 0) {
                     offerUntilStopped(Chunk.Data(buffer.copyOf(bytesRead), bytesRead))
                 }
@@ -104,7 +105,13 @@ class ReadAheadDataSource(private val delegate: DataSource) : DataSource {
 
         val current = pendingChunk ?: run {
             val chunk = try {
-                queue.take()
+                var next: Chunk? = null
+                while (next == null) {
+                    if (stopped.get()) throw IOException("Leitura remota encerrada")
+                    next = queue.poll(30, TimeUnit.SECONDS)
+                    if (next == null) throw IOException("Tempo esgotado aguardando dados do vídeo")
+                }
+                next
             } catch (e: InterruptedException) {
                 throw IOException("Leitura antecipada interrompida", e)
             }
@@ -151,6 +158,7 @@ class ReadAheadDataSource(private val delegate: DataSource) : DataSource {
         // thread) — sem isso, a thread poderia ficar bloqueada no read() por bem mais que o join abaixo.
         runCatching { delegate.close() }
         queue.clear()
+        queue.offer(Chunk.Error(IOException("Leitura remota encerrada")))
         readAheadThread?.join(300)
         readAheadThread = null
         pendingChunk = null

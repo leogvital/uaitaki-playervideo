@@ -7,11 +7,12 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSpec
 import com.example.neonplayer.sources.remote.RemoteCredentialStore
+import com.example.neonplayer.sources.remote.RemoteServerConfig
 import com.example.neonplayer.sources.remote.RemoteServerRepository
 import com.example.neonplayer.sources.remote.remoteRemotePath
 import com.example.neonplayer.sources.remote.remoteServerId
 import java.io.IOException
-import net.schmizz.sshj.SSHClient
+import java.io.EOFException
 import net.schmizz.sshj.sftp.RemoteFile
 import net.schmizz.sshj.sftp.SFTPClient
 
@@ -26,7 +27,6 @@ class SftpDataSource(
     private val credentialStore: RemoteCredentialStore,
 ) : BaseDataSource(/* isNetwork= */ true) {
 
-    private var ssh: SSHClient? = null
     private var sftp: SFTPClient? = null
     private var file: RemoteFile? = null
     private var uri: Uri? = null
@@ -48,9 +48,15 @@ class SftpDataSource(
         val password = credentialStore.getPassword(serverId).orEmpty()
 
         try {
-            val ssh = connectedSshClient(config, password)
-            this.ssh = ssh
-            val sftp = ssh.newSFTPClient()
+            val sftp = try {
+                openSftpChannel(serverId, config, password)
+            } catch (e: Exception) {
+                // A conexão em cache pode ter caído (timeout do servidor/rede) sem que isAlive()
+                // tivesse percebido ainda — descarta e tenta uma vez com uma conexão nova antes de
+                // desistir, em vez de falhar a reprodução por causa de uma conexão reaproveitada morta.
+                sftpConnectionPool.invalidate(serverId)
+                openSftpChannel(serverId, config, password)
+            }
             this.sftp = sftp
             val file = sftp.open(remotePath)
             this.file = file
@@ -58,7 +64,7 @@ class SftpDataSource(
             val fileSize = file.length()
             position = dataSpec.position
             bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
-                dataSpec.length
+                minOf(dataSpec.length, fileSize - dataSpec.position)
             } else {
                 fileSize - dataSpec.position
             }
@@ -70,8 +76,10 @@ class SftpDataSource(
             transferStarted(dataSpec)
             return bytesRemaining
         } catch (e: IOException) {
+            close()
             throw e
         } catch (e: Exception) {
+            close()
             throw IOException("Falha ao abrir vídeo remoto via SFTP: ${e.message}", e)
         }
     }
@@ -88,7 +96,7 @@ class SftpDataSource(
             throw IOException("Falha ao ler vídeo remoto via SFTP: ${e.message}", e)
         }
         if (bytesRead == -1) {
-            return C.RESULT_END_OF_INPUT
+            throw EOFException("Arquivo remoto interrompido com $bytesRemaining bytes pendentes")
         }
         position += bytesRead
         bytesRemaining -= bytesRead
@@ -101,13 +109,20 @@ class SftpDataSource(
     override fun close() {
         file?.let { runCatching { it.close() } }
         file = null
+        // Fecha só o canal SFTP (subsistema sobre a sessão SSH) — a conexão SSH em si (TCP +
+        // handshake criptográfico + autenticação) fica em [sftpConnectionPool] para o próximo seek
+        // reaproveitar em vez de reconectar do zero.
         sftp?.let { runCatching { it.close() } }
         sftp = null
-        ssh?.let { runCatching { it.close() } }
-        ssh = null
         if (opened) {
             opened = false
             transferEnded()
         }
+    }
+
+    /** Abre um canal SFTP sobre a conexão SSH em cache para [serverId] (ver [sftpConnectionPool]), conectando uma nova se não houver uma viva. */
+    private fun openSftpChannel(serverId: String, config: RemoteServerConfig, password: String): SFTPClient {
+        val ssh = sftpConnectionPool.acquire(serverId) { connectedSshClient(config, password) }
+        return ssh.newSFTPClient()
     }
 }

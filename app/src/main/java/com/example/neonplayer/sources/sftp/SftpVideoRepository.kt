@@ -1,6 +1,7 @@
 package com.example.neonplayer.sources.sftp
 
 import android.content.Context
+import android.util.Log
 import com.example.neonplayer.R
 import com.example.neonplayer.sources.BrowseFolder
 import com.example.neonplayer.sources.remote.RemoteCredentialStore
@@ -10,6 +11,7 @@ import com.example.neonplayer.sources.remote.RemoteServerConfig
 import com.example.neonplayer.sources.remote.RemoteVideo
 import com.example.neonplayer.sources.remote.ServerProtocol
 import com.example.neonplayer.sources.remote.hasVideoExtension
+import com.example.neonplayer.sources.remote.isDotEntry
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -69,13 +71,26 @@ class SftpVideoRepository(private val context: Context) {
         val password = credentialStore.getPassword(config.id).orEmpty()
         connectedSshClient(config, password).use { ssh ->
             ssh.newSFTPClient().use { sftp ->
-                val entries = sftp.ls(path)
+                // Path vazio ("raiz"/diretório padrão) é resolvido de formas diferentes por cada
+                // servidor SFTP: o protocolo não garante que "" vire o diretório home do usuário —
+                // alguns servidores respondem NO_SUCH_FILE para uma string vazia. "." é a convenção
+                // universalmente aceita para "diretório atual" e evita esse falso "caminho não encontrado".
+                val effectivePath = path.ifBlank { "." }
+                Log.d("SftpDebug", "fetchEntries: requestedPath='$path' effectivePath='$effectivePath'")
+                val entries = sftp.ls(effectivePath).filterNot { isDotEntry(it.name) }
+                Log.d("SftpDebug", "fetchEntries: got ${entries.size} entries: ${entries.map { it.name }}")
                 val folders = entries
                     .asSequence()
                     .filter { it.isDirectory }
                     .map { BrowseFolder(name = it.name, path = joinSftpPath(path, it.name)) }
                     .sortedBy { it.name.lowercase() }
                     .toList()
+                    .let { subfolders ->
+                        // Entrada ".." sintética: deixa o SFTP resolver o caminho pai (mesma
+                        // convenção de um cliente SFTP normal), permitindo subir acima da raiz
+                        // configurada do servidor em vez de travar nela.
+                        listOf(BrowseFolder(name = "..", path = joinSftpPath(path, ".."), isParent = true)) + subfolders
+                    }
                 val videos = entries
                     .asSequence()
                     .filter { it.isRegularFile }

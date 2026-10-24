@@ -7,22 +7,22 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSpec
 import com.example.neonplayer.sources.remote.RemoteCredentialStore
+import com.example.neonplayer.sources.remote.RemoteServerConfig
 import com.example.neonplayer.sources.remote.RemoteServerRepository
 import com.example.neonplayer.sources.remote.remoteRemotePath
 import com.example.neonplayer.sources.remote.remoteServerId
 import java.io.IOException
 import java.io.InputStream
 import org.apache.commons.net.ftp.FTPClient
+import java.io.EOFException
 
 /**
  * [androidx.media3.datasource.DataSource] que lê um vídeo hospedado num servidor FTP.
  *
  * O protocolo FTP não suporta leitura posicional dentro de uma conexão de dados já aberta como
- * SMB/SFTP — em vez disso, cada [open] reconecta e usa `REST` ([FTPClient.setRestartOffset]) para
- * pedir ao servidor que o próximo `RETR` comece na posição desejada. Isso é suficiente porque o
- * ExoPlayer chama [open] de novo a cada seek (não pede leitura posicional dentro de uma sessão já
- * aberta), mas faz de cada seek uma nova conexão — mais lento que SMB/SFTP, é uma limitação real
- * do protocolo, não desta implementação.
+ * SMB/SFTP — em vez disso, cada [open] usa `REST` ([FTPClient.setRestartOffset]) para pedir ao
+ * servidor que o próximo `RETR` comece na posição desejada, e abre um novo fluxo de dados. A
+ * conexão de controle é exclusiva desta leitura e é descartada ao interromper o fluxo.
  */
 @OptIn(UnstableApi::class)
 class FtpDataSource(
@@ -50,21 +50,14 @@ class FtpDataSource(
         val password = credentialStore.getPassword(serverId).orEmpty()
 
         try {
-            val client = connectedFtpClient(config, password)
-            this.client = client
-
-            val fileSize = client.listFiles(remotePath).firstOrNull { it != null }?.size
-                ?: throw IOException("Arquivo remoto não encontrado: $remotePath")
-
-            client.setRestartOffset(dataSpec.position)
-            val input = client.retrieveFileStream(remotePath)
-                ?: throw IOException("Falha ao iniciar leitura do arquivo remoto via FTP")
-            this.input = input
+            val stream = openFtpStream(config, password, remotePath, dataSpec.position)
+            this.client = stream.client
+            this.input = stream.input
 
             bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
-                dataSpec.length
+                minOf(dataSpec.length, stream.fileSize - dataSpec.position)
             } else {
-                fileSize - dataSpec.position
+                stream.fileSize - dataSpec.position
             }
             if (bytesRemaining < 0) {
                 throw IOException("Posição solicitada além do fim do arquivo remoto")
@@ -74,8 +67,10 @@ class FtpDataSource(
             transferStarted(dataSpec)
             return bytesRemaining
         } catch (e: IOException) {
+            close()
             throw e
         } catch (e: Exception) {
+            close()
             throw IOException("Falha ao abrir vídeo remoto via FTP: ${e.message}", e)
         }
     }
@@ -92,7 +87,7 @@ class FtpDataSource(
             throw IOException("Falha ao ler vídeo remoto via FTP: ${e.message}", e)
         }
         if (bytesRead == -1) {
-            return C.RESULT_END_OF_INPUT
+            throw EOFException("Transferência FTP interrompida com $bytesRemaining bytes pendentes")
         }
         bytesRemaining -= bytesRead
         bytesTransferred(bytesRead)
@@ -104,14 +99,32 @@ class FtpDataSource(
     override fun close() {
         input?.let { runCatching { it.close() } }
         input = null
-        client?.let { c ->
-            runCatching { c.completePendingCommand() }
-            runCatching { if (c.isConnected) c.disconnect() }
-        }
+        // Um RETR interrompido pode deixar respostas 426/226 pendentes. Reconectar evita que
+        // o próximo REST/RETR consuma uma resposta antiga e leia da posição errada.
+        client?.let { c -> runCatching { c.disconnect() } }
         client = null
         if (opened) {
             opened = false
             transferEnded()
         }
+    }
+
+    private data class FtpStream(val client: FTPClient, val input: InputStream, val fileSize: Long)
+
+    /** Abre uma conexão exclusiva e solicita a posição exata com REST antes de RETR. */
+    private fun openFtpStream(
+        config: RemoteServerConfig,
+        password: String,
+        remotePath: String,
+        position: Long,
+    ): FtpStream {
+        val client = connectedFtpClient(config, password)
+        this.client = client
+        val fileSize = client.listFiles(remotePath).firstOrNull { it != null }?.size
+            ?: throw IOException("Arquivo remoto não encontrado: $remotePath")
+        client.setRestartOffset(position)
+        val input = client.retrieveFileStream(remotePath)
+            ?: throw IOException("Falha ao iniciar leitura do arquivo remoto via FTP")
+        return FtpStream(client, input, fileSize)
     }
 }

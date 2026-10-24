@@ -20,6 +20,7 @@ import com.hierynomus.smbj.session.Session
 import com.hierynomus.smbj.share.DiskShare
 import com.hierynomus.smbj.share.File as SmbFile
 import java.io.IOException
+import java.io.EOFException
 import java.util.EnumSet
 
 /**
@@ -57,7 +58,7 @@ class SmbDataSource(
         val (shareName, _) = splitShareAndPath(config.path)
 
         try {
-            val client = newSmbClient()
+            val client = smbClientPool.acquire(serverId, ::newSmbClient)
             this.client = client
             val connection = client.connect(config.host, config.port)
             val authContext = AuthenticationContext(config.username, password.toCharArray(), null)
@@ -78,7 +79,7 @@ class SmbDataSource(
             val fileSize = file.getFileInformation(FileStandardInformation::class.java).endOfFile
             position = dataSpec.position
             bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
-                dataSpec.length
+                minOf(dataSpec.length, fileSize - dataSpec.position)
             } else {
                 fileSize - dataSpec.position
             }
@@ -90,8 +91,10 @@ class SmbDataSource(
             transferStarted(dataSpec)
             return bytesRemaining
         } catch (e: IOException) {
+            close()
             throw e
         } catch (e: Exception) {
+            close()
             throw IOException("Falha ao abrir vídeo remoto via SMB: ${e.message}", e)
         }
     }
@@ -108,7 +111,7 @@ class SmbDataSource(
             throw IOException("Falha ao ler vídeo remoto via SMB: ${e.message}", e)
         }
         if (bytesRead == -1) {
-            return C.RESULT_END_OF_INPUT
+            throw EOFException("Arquivo remoto interrompido com $bytesRemaining bytes pendentes")
         }
         position += bytesRead
         bytesRemaining -= bytesRead
@@ -125,7 +128,8 @@ class SmbDataSource(
         share = null
         session?.let { runCatching { it.close() } }
         session = null
-        client?.let { runCatching { it.close() } }
+        // Não fecha o [SMBClient] — fica em [smbClientPool] para o próximo seek reaproveitar a
+        // conexão TCP/negociação SMB em vez de reconectar do zero (ver [SmbClients.kt]).
         client = null
         if (opened) {
             opened = false

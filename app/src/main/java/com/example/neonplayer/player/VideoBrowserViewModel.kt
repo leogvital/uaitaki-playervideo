@@ -2,6 +2,7 @@ package com.example.neonplayer.player
 
 import android.app.Application
 import android.content.IntentSender
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.neonplayer.R
@@ -20,6 +21,7 @@ import com.example.neonplayer.sources.SortPreferences
 import com.example.neonplayer.sources.SourceRef
 import com.example.neonplayer.sources.VideoShareController
 import com.example.neonplayer.sources.VideoShareRepository
+import com.example.neonplayer.sources.VideoViewMode
 import com.example.neonplayer.sources.favoriteSourceId
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
 import com.example.neonplayer.sources.local.DeleteVideoResult
@@ -39,6 +41,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -94,12 +97,27 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
 
     /** Pré-carregamento de miniaturas da pasta atual — cancelado a cada nova navegação, ver [prefetchThumbnails]. */
     private var thumbnailPrefetchJob: Job? = null
+    private var refreshJob: Job? = null
 
     val sortOption: StateFlow<SortOption> = sortPreferences.sortOptionFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SortOption(SortField.DATE, SortDirection.DESCENDING))
 
     fun setSortOption(option: SortOption) {
         viewModelScope.launch { sortPreferences.setSortOption(option) }
+    }
+
+    /**
+     * Guardado aqui (em vez de `rememberSaveable` na tela) pelo mesmo motivo do
+     * [listScrollIndex]/[listScrollOffset]: a pilha de navegação deste app é manual (ver
+     * [MainActivity]), não usa Navigation-Compose, então empurrar a tela do player desmonta
+     * [VideoBrowserScreen] por completo — sem um `SaveableStateHolder`, `rememberSaveable` local
+     * perde o valor e a tela sempre reaparecia em modo lista ao voltar do player.
+     */
+    private val _viewMode = MutableStateFlow(VideoViewMode.LIST)
+    val viewMode: StateFlow<VideoViewMode> = _viewMode.asStateFlow()
+
+    fun toggleViewMode() {
+        _viewMode.value = if (_viewMode.value == VideoViewMode.LIST) VideoViewMode.GRID else VideoViewMode.LIST
     }
     private val recursiveVideoFetcher = RecursiveVideoFetcher(
         localVideoRepository, remoteServerRepository, smbRepository, sftpRepository, ftpRepository,
@@ -181,25 +199,37 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
-     * Troca a fonte selecionada e recarrega. Ignorado se já for a fonte atual. [initialPath], se
-     * informado (usado só ao restaurar a última pasta navegada no início do app — ver
-     * [MainActivity]), abre direto nessa pasta em vez da raiz; a pilha de navegação nesse caso só
-     * tem 2 níveis (raiz + pasta restaurada) em vez do caminho completo intermediário — uma
-     * simplificação aceitável, já que a navegação normal a partir daí funciona como sempre.
+     * Troca a fonte selecionada e recarrega. [initialPath], se informado (usado só ao restaurar a
+     * última pasta navegada no início do app — ver [MainActivity]), abre direto nessa pasta em vez
+     * da raiz; a pilha de navegação nesse caso só tem 2 níveis (raiz + pasta restaurada) em vez do
+     * caminho completo intermediário — uma simplificação aceitável, já que a navegação normal a
+     * partir daí funciona como sempre.
+     *
+     * Mesmo quando a fonte já é a atual, a raiz é recalculada e comparada com a raiz vigente na
+     * pilha: se o usuário editou o campo "Caminho" do servidor (ex: SFTP/FTP) enquanto essa mesma
+     * fonte já estava selecionada, a navegação precisa reiniciar a partir do novo caminho — do
+     * contrário ela ficava "presa" na raiz antiga (ex: diretório home do usuário SFTP) mesmo depois
+     * de o servidor ser reconfigurado para outro caminho.
      */
     fun selectSource(source: SourceRef, initialPath: String? = null) {
-        if (source == _selectedSource.value) return
+        val sameSource = source == _selectedSource.value
         _selectedSource.value = source
-        cancelFolderSelection()
-        resetScrollPosition()
         viewModelScope.launch {
             val root = rootPathFor(source)
+            Log.d("SftpDebug", "selectSource: source=$source sameSource=$sameSource root='$root' folderStack=$folderStack")
+            if (sameSource && folderStack.firstOrNull() == root) {
+                refresh()
+                return@launch
+            }
+            cancelFolderSelection()
+            resetScrollPosition()
             val startPath = initialPath?.takeIf { it.isNotBlank() && it != root } ?: root
             folderStack.clear()
             folderStack.add(root)
             if (startPath != root) folderStack.add(startPath)
             _currentPath.value = startPath
             _canNavigateUp.value = folderStack.size > 1
+            Log.d("SftpDebug", "selectSource: reset done, currentPath='${_currentPath.value}' folderStack=$folderStack")
             refresh()
         }
     }
@@ -213,6 +243,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
         SourceRef.Local -> ""
         is SourceRef.Remote -> {
             val config = remoteServerRepository.getServer(source.serverId)
+            Log.d("SftpDebug", "rootPathFor: serverId=${source.serverId} config.path='${config?.path}' protocol=${config?.protocol}")
             when (config?.protocol) {
                 ServerProtocol.SMB -> splitShareAndPath(config.path).second
                 else -> config?.path.orEmpty()
@@ -221,6 +252,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun navigateInto(folder: BrowseFolder) {
+        Log.d("SftpDebug", "navigateInto: folder.path='${folder.path}' folderStackBefore=$folderStack")
         folderStack.add(folder.path)
         _currentPath.value = folder.path
         _canNavigateUp.value = folderStack.size > 1
@@ -231,6 +263,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
 
     /** @return true se subiu um nível (havia para onde voltar), false se já estava na raiz da fonte. */
     fun navigateUp(): Boolean {
+        Log.d("SftpDebug", "navigateUp: folderStackBefore=$folderStack")
         if (folderStack.size <= 1) return false
         folderStack.removeAt(folderStack.lastIndex)
         _currentPath.value = folderStack.last()
@@ -248,6 +281,7 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
 
     /** Alterna a seleção de uma pasta — também liga o modo de seleção, para o atalho de toque-e-segure funcionar sem passar pelo botão da barra de ferramentas. */
     fun toggleFolderSelection(folder: BrowseFolder) {
+        if (folder.isParent) return
         _selectionModeActive.value = true
         _selectedFolders.value = if (folder.path in _selectedFolders.value) {
             _selectedFolders.value - folder.path
@@ -304,7 +338,9 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        cancelThumbnailPrefetch()
+        refreshJob = viewModelScope.launch {
             isLoading.value = true
             errorMessage.value = null
             val path = _currentPath.value
@@ -316,12 +352,14 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
                 SourceRef.Local -> {
                     runCatching { localVideoRepository.browse(path) }
                         .onSuccess { result ->
+                            coroutineContext.ensureActive()
                             rawFolders.value = result.folders
                             rawVideos.value = result.videos
                             isLoading.value = false
                             prefetchThumbnails(result.videos)
                         }
                         .onFailure {
+                            coroutineContext.ensureActive()
                             isLoading.value = false
                             errorMessage.value = getApplication<Application>().getString(R.string.error_loading_videos)
                         }
@@ -334,11 +372,13 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
                         errorMessage.value = getApplication<Application>().getString(R.string.smb_error_server_not_found)
                         return@launch
                     }
+                    Log.d("SftpDebug", "refresh: protocol=${config.protocol} config.path='${config.path}' requestedPath='$path'")
                     val result = when (config.protocol) {
                         ServerProtocol.SMB -> smbRepository.listVideos(config, path)
                         ServerProtocol.SFTP -> sftpRepository.listVideos(config, path)
                         ServerProtocol.FTP -> ftpRepository.listVideos(config, path)
                     }
+                    coroutineContext.ensureActive()
                     when (result) {
                         is RemoteListResult.Success -> {
                             rawFolders.value = result.folders
@@ -378,6 +418,11 @@ class VideoBrowserViewModel(application: Application) : AndroidViewModel(applica
                 }
             }.awaitAll()
         }
+    }
+
+    /** Interrompe o pré-carregamento em segundo plano — chamado quando a tela de navegação sai de composição (ex: abrindo o player), ver [VideoBrowserScreen]. */
+    fun cancelThumbnailPrefetch() {
+        thumbnailPrefetchJob?.cancel()
     }
 
     fun toggleFavorite(video: PlayableVideo) {

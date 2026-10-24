@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -115,9 +116,17 @@ fun VideoPlayerScreen(
     // Ao sair da tela do player por qualquer caminho (seta de voltar, gesto do sistema, playlist
     // esvaziada por exclusão), o vídeo deixa de estar "em reprodução" — se essa playlist é
     // rastreada para retomada (ver VideoPlayerViewModel.canPersistResume), limpa só essa parte do
-    // estado salvo, preservando a pasta.
+    // estado salvo, preservando a pasta. Também pausa o ExoPlayer aqui: como o player é efetivamente
+    // singleton por Activity (mesma razão do ViewModel — ver VideoBrowserViewModel), sair da tela sem
+    // pausar deixava o vídeo decodificando em segundo plano para uma PlayerView/SurfaceView que está
+    // prestes a ser destruída; entrar e sair rapidamente (ou excluir e abrir outro vídeo em seguida,
+    // remontando a PlayerView enquanto a anterior ainda está sendo desfeita) corria essa decodificação
+    // contra a destruição da surface e derrubava o app sem exceção capturável.
     DisposableEffect(Unit) {
-        onDispose { viewModel.clearResumePlaybackIfApplicable() }
+        onDispose {
+            viewModel.clearResumePlaybackIfApplicable()
+            viewModel.player.pause()
+        }
     }
 
     // Estado do controle de proporção/tela cheia.
@@ -236,6 +245,10 @@ fun VideoPlayerScreen(
                 }
             },
             update = { it.setResizeMode(resizeMode) },
+            // Desvincula a PlayerView do ExoPlayer (singleton, sobrevive à saída desta tela) antes
+            // dela ser destruída — sem isso, a SurfaceView subjacente podia morrer com o player ainda
+            // tentando renderizar nela (ver DisposableEffect acima, que também pausa o player).
+            onRelease = { it.player = null },
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(
@@ -309,7 +322,11 @@ fun VideoPlayerScreen(
                 ),
         )
 
-        if (isSeekDragging && uiState.durationMs > 0) {
+        if (uiState.isBuffering) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        }
+
+        if (isSeekDragging && uiState.isSeekable && uiState.durationMs > 0) {
             val fraction = seekDragTotalPx / boxSize.width.toFloat().coerceAtLeast(1f)
             val previewMs = (seekDragStartMs + (fraction * uiState.durationMs).toLong()).coerceIn(0L, uiState.durationMs)
             Text(
@@ -418,7 +435,8 @@ fun VideoPlayerScreen(
                             sliderDragPositionMs?.let { viewModel.seekToPosition(it) }
                             sliderDragPositionMs = null
                         },
-                        valueRange = 0f..uiState.durationMs.toFloat().coerceAtLeast(1f),
+                        enabled = uiState.isSeekable && uiState.durationMs > 0,
+                    valueRange = 0f..uiState.durationMs.toFloat().coerceAtLeast(1f),
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
                             activeTrackColor = MaterialTheme.colorScheme.primary,

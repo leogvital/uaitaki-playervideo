@@ -12,6 +12,7 @@ import com.example.neonplayer.sources.SortOption
 import com.example.neonplayer.sources.SortPreferences
 import com.example.neonplayer.sources.VideoShareController
 import com.example.neonplayer.sources.VideoShareRepository
+import com.example.neonplayer.sources.VideoViewMode
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
 import com.example.neonplayer.sources.local.LocalVideoRepository
 import com.example.neonplayer.sources.remote.NeonDataSourceFactory
@@ -65,6 +66,19 @@ class FavoritesViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setSortOption(option: SortOption) {
         viewModelScope.launch { sortPreferences.setSortOption(option) }
+    }
+
+    /**
+     * Guardado aqui (em vez de `rememberSaveable` na tela) pelo mesmo motivo do
+     * [VideoBrowserViewModel.viewMode][com.example.neonplayer.player.VideoBrowserViewModel]: a
+     * pilha de navegação deste app é manual (ver `MainActivity`), então abrir um vídeo desmonta
+     * [FavoritesScreen] por completo e um `rememberSaveable` local perdia o valor ao voltar.
+     */
+    private val _viewMode = MutableStateFlow(VideoViewMode.LIST)
+    val viewMode: StateFlow<VideoViewMode> = _viewMode.asStateFlow()
+
+    fun toggleViewMode() {
+        _viewMode.value = if (_viewMode.value == VideoViewMode.LIST) VideoViewMode.GRID else VideoViewMode.LIST
     }
 
     fun refresh() {

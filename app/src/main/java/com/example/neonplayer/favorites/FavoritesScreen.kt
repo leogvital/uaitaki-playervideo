@@ -38,7 +38,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,7 +67,7 @@ fun FavoritesScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val collections by collectionsViewModel.collections.collectAsState(initial = emptyList())
-    var viewMode by rememberSaveable { mutableStateOf(VideoViewMode.LIST) }
+    val viewMode by viewModel.viewMode.collectAsState()
     var pendingDeleteCollection by remember { mutableStateOf<FavoriteCollection?>(null) }
     val sortOption by viewModel.sortOption.collectAsState()
     val shareState by viewModel.shareController.state.collectAsState()
@@ -81,7 +80,7 @@ fun FavoritesScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.favorites_title)) },
                 actions = {
-                    IconButton(onClick = { viewMode = if (viewMode == VideoViewMode.LIST) VideoViewMode.GRID else VideoViewMode.LIST }) {
+                    IconButton(onClick = viewModel::toggleViewMode) {
                         Icon(
                             imageVector = if (viewMode == VideoViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
                             contentDescription = stringResource(R.string.toggle_view_mode),

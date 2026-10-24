@@ -84,7 +84,12 @@ class FtpVideoRepository(private val context: Context) {
         val client = connectedFtpClient(config, password)
         try {
             val entries = client.listFiles(path).filterNotNull().filterNot { isDotEntry(it.name) }
-            val folders = entries
+            val folders = listOf(
+                // Entrada ".." sintética: deixa o servidor FTP resolver o caminho pai (mesma
+                // convenção de um cliente FTP normal), permitindo subir acima da raiz configurada
+                // do servidor em vez de travar nela.
+                BrowseFolder(name = "..", path = joinFtpPath(path, ".."), isParent = true),
+            ) + entries
                 .filter { it.isDirectory }
                 .map { BrowseFolder(name = it.name, path = joinFtpPath(path, it.name)) }
                 .sortedBy { it.name.lowercase() }

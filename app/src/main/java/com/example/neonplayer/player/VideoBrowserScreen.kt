@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -66,7 +67,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -120,11 +120,12 @@ fun VideoBrowserScreen(
     val shareState by viewModel.shareController.state.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val playAllEmptyMessage = stringResource(R.string.play_all_empty)
     var pendingDelete by remember { mutableStateOf<PlayableVideo?>(null) }
     var sourceMenuExpanded by remember { mutableStateOf(false) }
     var showCollectionChooser by remember { mutableStateOf(false) }
     var showCollectionNameDialog by remember { mutableStateOf(false) }
-    var viewMode by rememberSaveable { mutableStateOf(VideoViewMode.LIST) }
+    val viewMode by viewModel.viewMode.collectAsState()
     val sortOption by viewModel.sortOption.collectAsState()
 
     // Recarrega sempre que a tela volta a ficar visível (ex: voltando do player depois de excluir
@@ -145,7 +146,7 @@ fun VideoBrowserScreen(
         if (result.resultCode == Activity.RESULT_OK) viewModel.onSystemDeleteConfirmed()
     }
 
-    LaunchedEffect(viewModel) {
+    LaunchedEffect(viewModel, playAllEmptyMessage) {
         viewModel.events.collect { event ->
             when (event) {
                 is VideoBrowserEvent.RequestSystemDeleteConfirmation ->
@@ -157,7 +158,7 @@ fun VideoBrowserScreen(
                 is VideoBrowserEvent.StartPlayback -> onVideoClick(event.videos.sortedByOption(sortOption), 0)
 
                 VideoBrowserEvent.PlayAllEmpty ->
-                    coroutineScope.launch { snackbarHostState.showSnackbar(context.getString(R.string.play_all_empty)) }
+                    coroutineScope.launch { snackbarHostState.showSnackbar(playAllEmptyMessage) }
             }
         }
     }
@@ -188,6 +189,17 @@ fun VideoBrowserScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // O pré-carregamento de miniaturas roda no viewModelScope (ver
+    // VideoBrowserViewModel.prefetchThumbnails), não no ciclo de vida desta composable — como este
+    // ViewModel sobrevive à navegação para o player (mesmo Activity, ver VideoPlayerScreen), sem
+    // isso ele continuava decodificando miniaturas da pasta em segundo plano enquanto um vídeo
+    // tocava, disputando CPU/memória com o ExoPlayer e a decodificação do vídeo em si. Cancela ao
+    // sair desta tela (ex: abrir o player); a próxima vez que a pasta for revisitada, um novo
+    // refresh() reinicia o pré-carregamento do que ainda faltar.
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.cancelThumbnailPrefetch() }
     }
 
     val selectedLabel = sourceOptions.find { it.ref == selectedSource }?.label
@@ -270,7 +282,11 @@ fun VideoBrowserScreen(
                         if (isFetchingPlayAll) {
                             CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(24.dp))
                         } else {
-                            IconButton(onClick = { viewModel.playAllInCurrentFolder() }) {
+                            IconButton(
+                                enabled = !uiState.isLoading && (!isLocalSource || hasPermission) &&
+                                    (uiState.videos.isNotEmpty() || uiState.folders.isNotEmpty()),
+                                onClick = { viewModel.playAllInCurrentFolder() },
+                            ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
                                     contentDescription = stringResource(R.string.play_all),
@@ -285,7 +301,7 @@ fun VideoBrowserScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = { viewMode = if (viewMode == VideoViewMode.LIST) VideoViewMode.GRID else VideoViewMode.LIST }) {
+                        IconButton(onClick = viewModel::toggleViewMode) {
                             Icon(
                                 imageVector = if (viewMode == VideoViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
                                 contentDescription = stringResource(R.string.toggle_view_mode),
@@ -310,7 +326,8 @@ fun VideoBrowserScreen(
             // Semeadas com a posição salva no ViewModel para não voltar ao topo da lista ao
             // retornar do player ou depois de excluir um vídeo (ver VideoBrowserViewModel).
             val listState = rememberLazyListState(viewModel.listScrollIndex, viewModel.listScrollOffset)
-            LaunchedEffect(listState) {
+            LaunchedEffect(listState, viewMode) {
+                if (viewMode != VideoViewMode.LIST) return@LaunchedEffect
                 snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
                     .collect { (index, offset) ->
                         viewModel.listScrollIndex = index
@@ -318,7 +335,8 @@ fun VideoBrowserScreen(
                     }
             }
             val gridState = rememberLazyGridState(viewModel.listScrollIndex, viewModel.listScrollOffset)
-            LaunchedEffect(gridState) {
+            LaunchedEffect(gridState, viewMode) {
+                if (viewMode != VideoViewMode.GRID) return@LaunchedEffect
                 snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
                     .collect { (index, offset) ->
                         viewModel.listScrollIndex = index
@@ -344,7 +362,30 @@ fun VideoBrowserScreen(
                     }
                 }
 
-                folders.isEmpty() && sortedVideos.isEmpty() -> Text(stringResource(R.string.no_videos_found))
+                folders.isEmpty() && sortedVideos.isEmpty() -> Column(
+                    modifier = Modifier.padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(56.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = stringResource(if (isLocalSource) R.string.no_videos_found else R.string.remote_no_videos_found),
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center,
+                    )
+                    TextButton(onClick = viewModel::refresh) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null)
+                        Text(
+                            stringResource(R.string.remote_retry),
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
 
                 viewMode == VideoViewMode.LIST -> LazyColumn(
                     state = listState,
@@ -360,9 +401,9 @@ fun VideoBrowserScreen(
                         FolderListRow(
                             folder = folder,
                             onClick = {
-                                if (selectionModeActive) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
+                                if (!folder.isParent && selectionModeActive) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
                             },
-                            selectionMode = selectionModeActive,
+                            selectionMode = selectionModeActive && !folder.isParent,
                             selected = folder.path in selectedFolders,
                             onLongClick = { viewModel.toggleFolderSelection(folder) },
                         )
@@ -382,7 +423,7 @@ fun VideoBrowserScreen(
                 }
 
                 else -> LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                    columns = GridCells.Adaptive(minSize = 160.dp),
                     state = gridState,
                     modifier = Modifier
                         .fillMaxSize()
@@ -391,17 +432,17 @@ fun VideoBrowserScreen(
                             enabled = !uiState.isLoading,
                             onRefresh = viewModel::refresh,
                         ),
-                    contentPadding = PaddingValues(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     gridItems(folders, key = { "folder:" + it.path }) { folder ->
                         FolderGridCard(
                             folder = folder,
                             onClick = {
-                                if (selectionModeActive) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
+                                if (!folder.isParent && selectionModeActive) viewModel.toggleFolderSelection(folder) else viewModel.navigateInto(folder)
                             },
-                            selectionMode = selectionModeActive,
+                            selectionMode = selectionModeActive && !folder.isParent,
                             selected = folder.path in selectedFolders,
                             onLongClick = { viewModel.toggleFolderSelection(folder) },
                         )

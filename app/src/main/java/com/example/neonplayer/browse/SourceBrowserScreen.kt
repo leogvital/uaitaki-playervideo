@@ -15,7 +15,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,6 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.neonplayer.R
@@ -94,24 +97,44 @@ fun SourceBrowserScreen(
 
             SectionHeader(stringResource(R.string.browse_network_section))
             if (servers.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.remote_no_servers),
-                    textAlign = TextAlign.Start,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                )
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Dns,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = stringResource(R.string.remote_no_servers),
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = onAddServer) {
+                        Text(stringResource(R.string.remote_add_server))
+                    }
+                }
             } else {
                 servers.forEach { server ->
                     ListItem(
                         leadingContent = {
                             Icon(imageVector = Icons.Filled.Dns, contentDescription = null)
                         },
-                        headlineContent = { Text(server.name) },
+                        headlineContent = { Text(server.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         supportingContent = {
                             Column {
-                                AssistChip(onClick = {}, enabled = false, label = { Text(server.protocol.label) })
-                                Text("${server.host}:${server.port}/${server.path}")
+                                Text(
+                                    text = server.protocol.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    text = "${server.host}:${server.port}/${server.path.trimStart('/')}",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         },
                         trailingContent = {

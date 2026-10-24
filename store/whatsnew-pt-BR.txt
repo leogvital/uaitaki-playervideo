@@ -1,0 +1,6 @@
+Novidades desta versão:
+• Compartilhe vídeos direto da tela de reprodução ou da lista de favoritos, para qualquer app (WhatsApp, e-mail, etc.)
+• Favoritos e coleções agora são agrupados pela fonte de origem (local ou cada servidor), evitando confusão entre pastas com o mesmo nome
+• Veja informações do vídeo com um toque: resolução, codec, bitrate, tamanho e mais
+• Miniaturas carregam mais rápido, com pré-carregamento em segundo plano
+• Correções de estabilidade no player

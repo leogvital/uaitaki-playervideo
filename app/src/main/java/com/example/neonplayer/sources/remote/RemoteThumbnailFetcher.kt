@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
+import com.example.neonplayer.player.THUMBNAIL_FRAME_TIME_US
 import com.example.neonplayer.sources.ftp.connectedFtpClient
 import com.example.neonplayer.sources.sftp.connectedSshClient
 import com.example.neonplayer.sources.smb.newSmbClient
@@ -108,8 +109,6 @@ private object RemoteSessionCache {
 private val thumbnailSemaphores = ConcurrentHashMap<String, Semaphore>()
 private fun semaphoreFor(serverId: String): Semaphore =
     thumbnailSemaphores.computeIfAbsent(serverId) { Semaphore(MAX_CONCURRENT_THUMBNAILS_PER_SERVER) }
-// 5s em vez do início do vídeo — muitos vídeos abrem com um frame preto (fade-in/logo).
-private const val THUMBNAIL_FRAME_TIME_US = 5_000_000L
 
 /**
  * Limite de download para gerar miniatura via FTP, que ao contrário de SMB/SFTP não suporta
@@ -156,8 +155,8 @@ suspend fun fetchRemoteThumbnail(
  * decodificar tudo desde o frame-chave anterior) — a mesma escolha do "fast seek" do thumbnailer do
  * VLC (`VLC_THUMBNAILER_SEEK_FAST` em `modules/misc/medialibrary/Thumbnailer.cpp`). Em vídeo remoto
  * cada frame decodificado é mais dados lidos pela rede; essa troca é a que mais reduz o tempo de
- * geração. Contrapartida aceita: em vídeos com frames-chave muito espaçados (>5s), pode cair de
- * volta no frame 0 (preto/logo) em vez do frame mais próximo de 5s — velocidade importa mais aqui.
+ * geração. Contrapartida aceita: em vídeos com frames-chave muito espaçados (>10s), pode cair de
+ * volta no frame 0 (preto/logo) em vez do frame mais próximo de 10s — velocidade importa mais aqui.
  */
 private fun extractFrame(dataSource: MediaDataSource): Bitmap? {
     val retriever = MediaMetadataRetriever()

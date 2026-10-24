@@ -1,5 +1,6 @@
 package com.example.neonplayer.sources.ftp
 
+import com.example.neonplayer.sources.remote.RemoteConnectionPool
 import com.example.neonplayer.sources.remote.RemoteServerConfig
 import java.io.IOException
 import java.time.Duration
@@ -8,6 +9,19 @@ import org.apache.commons.net.ftp.FTPClient
 import org.apache.commons.net.ftp.FTPReply
 
 private const val FTP_TIMEOUT_MS = 15_000
+
+/**
+ * [FTPClient] (conexão de controle já autenticada) reaproveitado entre seeks (ver
+ * [RemoteConnectionPool]) — cada seek só precisa reposicionar (`REST`) e reabrir o fluxo de dados
+ * (`RETR`) na mesma conexão, sem repetir o login.
+ */
+internal val ftpConnectionPool = RemoteConnectionPool<FTPClient>(
+    isAlive = { it.isConnected },
+    disconnect = { client ->
+        runCatching { client.logout() }
+        runCatching { client.disconnect() }
+    },
+)
 
 /** Erro de protocolo FTP com o código de resposta do servidor, para mapear mensagens claras. */
 internal class FtpCommandException(val replyCode: Int, message: String) : IOException(message)

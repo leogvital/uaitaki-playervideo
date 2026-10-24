@@ -11,6 +11,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.example.neonplayer.R
@@ -20,6 +21,7 @@ import com.example.neonplayer.sources.PlaybackResumeStore
 import com.example.neonplayer.sources.VideoShareController
 import com.example.neonplayer.sources.VideoShareRepository
 import com.example.neonplayer.sources.ftp.FtpVideoRepository
+import com.example.neonplayer.sources.ftp.ftpConnectionPool
 import com.example.neonplayer.sources.local.DeleteVideoResult
 import com.example.neonplayer.sources.local.LocalVideo
 import com.example.neonplayer.sources.local.LocalVideoRepository
@@ -30,7 +32,9 @@ import com.example.neonplayer.sources.remote.RemoteServerRepository
 import com.example.neonplayer.sources.remote.RemoteVideo
 import com.example.neonplayer.sources.remote.ServerProtocol
 import com.example.neonplayer.sources.sftp.SftpVideoRepository
+import com.example.neonplayer.sources.sftp.sftpConnectionPool
 import com.example.neonplayer.sources.smb.SmbVideoRepository
+import com.example.neonplayer.sources.smb.smbClientPool
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -56,6 +60,8 @@ data class VideoPlayerUiState(
     val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val isShuffleEnabled: Boolean = false,
+    val isSeekable: Boolean = false,
+    val isBuffering: Boolean = false,
 )
 
 data class VideoInfo(
@@ -82,6 +88,7 @@ sealed interface VideoPlayerEvent {
     data class PlaybackError(val message: String) : VideoPlayerEvent
 }
 
+@OptIn(UnstableApi::class)
 class VideoPlayerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val favoritesRepository = FavoritesRepository(application)
@@ -109,6 +116,8 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     private var playlist: List<PlayableVideo> = emptyList()
     private var favoriteIds: Set<String> = emptySet()
     private var favoritesJob: Job? = null
+    private var playbackRetryJob: Job? = null
+    private var playbackRetryCount = 0
 
     /**
      * Só é `true` quando a playlist veio da navegação principal por pastas (ver
@@ -136,6 +145,8 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                playbackRetryJob?.cancel()
+                playbackRetryCount = 0
                 updateCurrentItemState()
                 persistResumeProgress()
             }
@@ -144,7 +155,32 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 _uiState.value = _uiState.value.copy(isShuffleEnabled = shuffleModeEnabled)
             }
 
+            override fun onEvents(player: Player, events: Player.Events) {
+                _uiState.value = _uiState.value.copy(
+                    isSeekable = player.isCurrentMediaItemSeekable,
+                    isBuffering = player.playbackState == Player.STATE_BUFFERING,
+                )
+            }
+
             override fun onPlayerError(error: PlaybackException) {
+                val transientReadError = error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+                if (transientReadError && playbackRetryCount < 2) {
+                    playbackRetryCount++
+                    val index = player.currentMediaItemIndex
+                    val positionMs = player.currentPosition.coerceAtLeast(0)
+                    playbackRetryJob?.cancel()
+                    playbackRetryJob = viewModelScope.launch {
+                        delay(750L * playbackRetryCount)
+                        // prepare() retoma o item e a posição; não recria a playlist no início.
+                        if (player.currentMediaItemIndex == index && player.playerError != null) {
+                            player.seekTo(index, positionMs)
+                            player.prepare()
+                        }
+                    }
+                    return
+                }
                 val failedTitle = playlist.getOrNull(player.currentMediaItemIndex)?.displayName.orEmpty()
                 val hasNext = player.hasNextMediaItem()
                 val message = getApplication<Application>().getString(
@@ -194,6 +230,8 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         autoPlay: Boolean = true,
         canPersistResume: Boolean = false,
     ) {
+        playbackRetryJob?.cancel()
+        playbackRetryCount = 0
         playlist = videos
         this.canPersistResume = canPersistResume
         resumeSaveTickCounter = 0
@@ -221,7 +259,16 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun togglePlayPause() {
-        if (player.isPlaying) player.pause() else player.play()
+        if (player.isPlaying) {
+            player.pause()
+        } else {
+            if (player.playerError != null) {
+                playbackRetryCount = 0
+                playbackRetryJob?.cancel()
+                player.prepare()
+            }
+            player.play()
+        }
     }
 
     fun skipToNext() {
@@ -232,27 +279,18 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem()
     }
 
-    fun seekBack() {
-        player.seekTo((player.currentPosition - SEEK_STEP_MS).coerceAtLeast(0))
-    }
+    fun seekBack() = seekBy(-SEEK_STEP_MS)
 
-    fun seekForward() {
-        val duration = player.duration
-        val target = player.currentPosition + SEEK_STEP_MS
-        player.seekTo(if (duration == C.TIME_UNSET) target else target.coerceAtMost(duration))
-    }
+    fun seekForward() = seekBy(SEEK_STEP_MS)
 
     /** Avança/retrocede um deslocamento relativo à posição atual — usado pelo arraste horizontal de scrub, diferente do seekBack/seekForward de duplo toque. */
     fun seekBy(deltaMs: Long) {
-        val duration = player.duration
-        val target = (player.currentPosition + deltaMs).coerceAtLeast(0)
-        val clamped = if (duration == C.TIME_UNSET) target else target.coerceAtMost(duration)
-        player.seekTo(clamped)
-        _uiState.value = _uiState.value.copy(currentPositionMs = clamped)
+        seekToPosition(player.currentPosition + deltaMs)
     }
 
     /** Salta para uma posição absoluta — usado ao arrastar a barra de progresso. */
     fun seekToPosition(positionMs: Long) {
+        if (!player.isCurrentMediaItemSeekable) return
         val duration = player.duration
         val target = positionMs.coerceAtLeast(0).let { if (duration == C.TIME_UNSET) it else it.coerceAtMost(duration) }
         player.seekTo(target)
@@ -398,6 +436,11 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     override fun onCleared() {
         player.release()
+        // Encerra as conexões remotas mantidas vivas entre seeks (ver [RemoteConnectionPool]) —
+        // não faz sentido segurá-las abertas depois que a tela do player (e este ViewModel) morre.
+        sftpConnectionPool.closeAll()
+        smbClientPool.closeAll()
+        ftpConnectionPool.closeAll()
         super.onCleared()
     }
 }
@@ -422,7 +465,8 @@ private fun buildPlayer(
             /* bufferForPlaybackAfterRebufferMs = */ 6_000,
         )
         .build()
-    return ExoPlayer.Builder(application)
+    val renderersFactory = DefaultRenderersFactory(application).setEnableDecoderFallback(true)
+    return ExoPlayer.Builder(application, renderersFactory)
         .setMediaSourceFactory(mediaSourceFactory)
         .setLoadControl(loadControl)
         .build()

@@ -1,5 +1,6 @@
 package com.example.neonplayer.sources.sftp
 
+import com.example.neonplayer.sources.remote.RemoteConnectionPool
 import com.example.neonplayer.sources.remote.RemoteServerConfig
 import java.security.Security
 import net.schmizz.sshj.SSHClient
@@ -7,6 +8,15 @@ import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 
 private const val SFTP_TIMEOUT_MS = 15_000
+
+/**
+ * Conexões SSH reaproveitadas entre seeks (ver [RemoteConnectionPool]) — [SftpDataSource] adquire
+ * daqui em vez de sempre abrir uma nova via [connectedSshClient].
+ */
+internal val sftpConnectionPool = RemoteConnectionPool<SSHClient>(
+    isAlive = { it.isConnected && it.isAuthenticated },
+    disconnect = { it.disconnect() },
+)
 
 /**
  * O provider "BC" embutido no Android é uma versão reduzida do BouncyCastle sem suporte a

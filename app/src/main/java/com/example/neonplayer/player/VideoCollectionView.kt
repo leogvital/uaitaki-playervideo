@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Share
@@ -66,6 +67,8 @@ fun FolderListRow(
         leadingContent = {
             if (selectionMode) {
                 Checkbox(checked = selected, onCheckedChange = { onClick() })
+            } else if (folder.isParent) {
+                Icon(imageVector = Icons.Filled.ArrowUpward, contentDescription = stringResource(R.string.navigate_up))
             } else {
                 Icon(imageVector = Icons.Filled.Folder, contentDescription = stringResource(R.string.open_folder))
             }
@@ -91,6 +94,8 @@ fun FolderGridCard(
         ) {
             if (selectionMode) {
                 Checkbox(checked = selected, onCheckedChange = { onClick() })
+            } else if (folder.isParent) {
+                Icon(imageVector = Icons.Filled.ArrowUpward, contentDescription = stringResource(R.string.navigate_up))
             } else {
                 Icon(imageVector = Icons.Filled.Folder, contentDescription = stringResource(R.string.open_folder))
             }

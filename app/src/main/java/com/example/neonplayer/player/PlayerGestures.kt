@@ -2,6 +2,9 @@ package com.example.neonplayer.player
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.composed
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -35,7 +38,18 @@ fun Modifier.playerGestures(
     onVerticalDragEnd: () -> Unit,
     onPan: (delta: Offset) -> Unit,
     onPinchZoom: (zoomChange: Float) -> Unit,
-): Modifier = this.pointerInput(Unit) {
+): Modifier = composed {
+    // O detector vive entre recomposições; usa sempre duração, posição e callbacks atuais.
+    val currentIsZoomed by rememberUpdatedState(isZoomed)
+    val currentOnSingleTap by rememberUpdatedState(onSingleTap)
+    val currentOnDoubleTap by rememberUpdatedState(onDoubleTap)
+    val currentOnSeekDrag by rememberUpdatedState(onSeekDrag)
+    val currentOnSeekDragEnd by rememberUpdatedState(onSeekDragEnd)
+    val currentOnVerticalDrag by rememberUpdatedState(onVerticalDrag)
+    val currentOnVerticalDragEnd by rememberUpdatedState(onVerticalDragEnd)
+    val currentOnPan by rememberUpdatedState(onPan)
+    val currentOnPinchZoom by rememberUpdatedState(onPinchZoom)
+    pointerInput(Unit) {
     coroutineScope {
     var lastTapTime = 0L
     var lastTapWasLeft = false
@@ -65,8 +79,8 @@ fun Modifier.playerGestures(
                     pinching = true
                     axis = DragAxis.NONE
                 } else {
-                    if (prevDistance > 0f) onPinchZoom(distance / prevDistance)
-                    onPan(midpoint - prevMidpoint)
+                    if (prevDistance > 0f) currentOnPinchZoom(distance / prevDistance)
+                    currentOnPan(midpoint - prevMidpoint)
                 }
                 prevDistance = distance
                 prevMidpoint = midpoint
@@ -76,9 +90,9 @@ fun Modifier.playerGestures(
                 val change = pressed[0]
                 val delta = change.positionChange()
 
-                if (isZoomed()) {
+                if (currentIsZoomed()) {
                     if (delta != Offset.Zero) {
-                        onPan(delta)
+                        currentOnPan(delta)
                         change.consume()
                     }
                 } else if (axis == DragAxis.NONE) {
@@ -86,14 +100,14 @@ fun Modifier.playerGestures(
                     totalDy += delta.y
                     if (abs(totalDx) > TOUCH_SLOP_PX || abs(totalDy) > TOUCH_SLOP_PX) {
                         axis = if (abs(totalDx) > abs(totalDy)) DragAxis.HORIZONTAL else DragAxis.VERTICAL
-                        if (axis == DragAxis.HORIZONTAL) onSeekDrag(totalDx) else onVerticalDrag(isLeftSide, totalDy)
+                        if (axis == DragAxis.HORIZONTAL) currentOnSeekDrag(totalDx) else currentOnVerticalDrag(isLeftSide, totalDy)
                         change.consume()
                     }
                 } else if (axis == DragAxis.HORIZONTAL) {
-                    if (delta.x != 0f) onSeekDrag(delta.x)
+                    if (delta.x != 0f) currentOnSeekDrag(delta.x)
                     change.consume()
                 } else if (axis == DragAxis.VERTICAL) {
-                    if (delta.y != 0f) onVerticalDrag(isLeftSide, delta.y)
+                    if (delta.y != 0f) currentOnVerticalDrag(isLeftSide, delta.y)
                     change.consume()
                 }
             }
@@ -101,15 +115,15 @@ fun Modifier.playerGestures(
             if (pressed.isEmpty()) {
                 when {
                     pinching -> Unit
-                    axis == DragAxis.HORIZONTAL -> onSeekDragEnd()
-                    axis == DragAxis.VERTICAL -> onVerticalDragEnd()
-                    !isZoomed() -> {
+                    axis == DragAxis.HORIZONTAL -> currentOnSeekDragEnd()
+                    axis == DragAxis.VERTICAL -> currentOnVerticalDragEnd()
+                    !currentIsZoomed() -> {
                         val now = System.currentTimeMillis()
                         if (now - lastTapTime < DOUBLE_TAP_TIMEOUT_MS && lastTapWasLeft == isLeftSide) {
                             pendingSingleTapJob?.cancel()
                             pendingSingleTapJob = null
                             lastTapTime = 0L
-                            onDoubleTap(isLeftSide)
+                            currentOnDoubleTap(isLeftSide)
                         } else {
                             lastTapTime = now
                             lastTapWasLeft = isLeftSide
@@ -117,7 +131,7 @@ fun Modifier.playerGestures(
                             pendingSingleTapJob = launch {
                                 delay(DOUBLE_TAP_TIMEOUT_MS)
                                 lastTapTime = 0L
-                                onSingleTap()
+                                currentOnSingleTap()
                             }
                         }
                     }
@@ -125,6 +139,7 @@ fun Modifier.playerGestures(
                 break
             }
         }
+    }
     }
     }
 }
